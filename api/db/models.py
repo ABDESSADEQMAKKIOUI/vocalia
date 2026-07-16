@@ -693,6 +693,24 @@ class CampaignModel(Base):
     source_type = Column(String, nullable=False, default="csv")
     source_id = Column(String, nullable=False)  # CSV file key
 
+    # Dispatch channel: "voice" (telephony calls) or "whatsapp" (template
+    # messages via the messaging channel). WhatsApp campaigns reference a
+    # messaging configuration and an APPROVED template instead of a
+    # telephony configuration.
+    channel = Column(
+        String(16), nullable=False, default="voice", server_default=text("'voice'")
+    )
+    messaging_configuration_id = Column(
+        Integer,
+        ForeignKey("messaging_configurations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    whatsapp_template_id = Column(
+        Integer,
+        ForeignKey("whatsapp_templates.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     # State management
     state = Column(
         Enum(
@@ -1447,4 +1465,287 @@ class KnowledgeBaseChunkModel(Base):
             postgresql_with={"lists": 100},  # Adjust based on dataset size
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
+    )
+
+
+class MessagingConfigurationModel(Base):
+    """Org-scoped messaging channel configuration (WhatsApp Cloud API).
+
+    Unlike telephony_configurations, `credentials` values are encrypted at
+    rest via api.utils.crypto (Meta system-user tokens are long-lived).
+    Expected credential keys for provider "whatsapp": access_token,
+    app_secret, verify_token, waba_id.
+    """
+
+    __tablename__ = "messaging_configurations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    name = Column(String(64), nullable=False)
+    provider = Column(String(32), nullable=False, default="whatsapp")
+    credentials = Column(JSON, nullable=False, default=dict)
+    is_active = Column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    organization = relationship("OrganizationModel")
+    addresses = relationship(
+        "MessagingAddressModel",
+        back_populates="configuration",
+        cascade="all, delete-orphan",
+    )
+    templates = relationship(
+        "WhatsAppTemplateModel",
+        back_populates="configuration",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "name", name="uq_messaging_configurations_org_name"
+        ),
+        Index("ix_messaging_configurations_org", "organization_id"),
+    )
+
+
+class MessagingAddressModel(Base):
+    """A WhatsApp business phone number attached to a messaging configuration.
+
+    external_id is Meta's phone_number_id (globally unique) — the inbound
+    routing key, mirroring telephony_phone_numbers.inbound_workflow_id.
+    """
+
+    __tablename__ = "messaging_addresses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    messaging_configuration_id = Column(
+        Integer,
+        ForeignKey("messaging_configurations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    address = Column(String(64), nullable=False)  # display number, E.164
+    external_id = Column(String(64), nullable=False)  # Meta phone_number_id
+    account_id = Column(String(64), nullable=True)  # WABA id
+    inbound_workflow_id = Column(
+        Integer,
+        ForeignKey("workflows.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    is_active = Column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    extra_metadata = Column(
+        JSON, nullable=False, default=dict, server_default=text("'{}'::json")
+    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    configuration = relationship(
+        "MessagingConfigurationModel", back_populates="addresses"
+    )
+    inbound_workflow = relationship("WorkflowModel")
+
+    __table_args__ = (
+        UniqueConstraint("external_id", name="uq_messaging_addresses_external_id"),
+        Index("ix_messaging_addresses_org", "organization_id"),
+        Index("ix_messaging_addresses_config", "messaging_configuration_id"),
+    )
+
+
+class WhatsAppConversationModel(Base):
+    """One WhatsApp conversation window == one workflow run (mode=whatsapp).
+
+    A conversation is open while messages flow and is closed by the
+    inactivity sweeper (which enqueues workflow completion) or an End node.
+    At most one open conversation exists per (phone_number_id, wa_id).
+    """
+
+    __tablename__ = "whatsapp_conversations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    messaging_address_id = Column(
+        Integer,
+        ForeignKey("messaging_addresses.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    phone_number_id = Column(String(64), nullable=False)
+    wa_id = Column(String(32), nullable=False)
+    profile_name = Column(String(255), nullable=True)
+    workflow_run_id = Column(
+        Integer,
+        ForeignKey("workflow_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    campaign_id = Column(
+        Integer,
+        ForeignKey("campaigns.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    state = Column(
+        String(16), nullable=False, default="open", server_default=text("'open'")
+    )
+    service_window_expires_at = Column(DateTime(timezone=True), nullable=True)
+    last_inbound_at = Column(DateTime(timezone=True), nullable=True)
+    last_outbound_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    workflow_run = relationship("WorkflowRunModel")
+    messaging_address = relationship("MessagingAddressModel")
+
+    __table_args__ = (
+        Index(
+            "uq_whatsapp_conversations_open",
+            "phone_number_id",
+            "wa_id",
+            unique=True,
+            postgresql_where=text("state = 'open'"),
+        ),
+        Index("ix_whatsapp_conversations_run", "workflow_run_id"),
+        Index("ix_whatsapp_conversations_state_updated", "state", "updated_at"),
+        Index("ix_whatsapp_conversations_org", "organization_id"),
+    )
+
+
+class WhatsAppProcessedMessageModel(Base):
+    """Webhook idempotency: Meta redelivers events; wamids are recorded once.
+
+    Rows are purged by the conversation sweeper after a retention window.
+    """
+
+    __tablename__ = "whatsapp_processed_messages"
+
+    wamid = Column(String(128), primary_key=True)
+    conversation_id = Column(Integer, nullable=True)
+    received_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    __table_args__ = (Index("ix_whatsapp_processed_messages_at", "received_at"),)
+
+
+class WhatsAppTemplateModel(Base):
+    """Local mirror of a Meta message template.
+
+    Meta is the source of truth for review state: status, quality_score
+    and category are updated only from template webhooks or the
+    reconciliation sync. status: DRAFT (not yet submitted) | PENDING |
+    APPROVED | REJECTED | PAUSED | DISABLED | IN_APPEAL.
+    """
+
+    __tablename__ = "whatsapp_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    messaging_configuration_id = Column(
+        Integer,
+        ForeignKey("messaging_configurations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    meta_template_id = Column(String(64), nullable=True)
+    name = Column(String(512), nullable=False)
+    language = Column(String(16), nullable=False)
+    category = Column(String(32), nullable=False)
+    parameter_format = Column(
+        String(16),
+        nullable=False,
+        default="positional",
+        server_default=text("'positional'"),
+    )
+    components = Column(
+        JSON, nullable=False, default=list, server_default=text("'[]'::json")
+    )
+    status = Column(
+        String(32), nullable=False, default="DRAFT", server_default=text("'DRAFT'")
+    )
+    quality_score = Column(String(16), nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    category_pending_change = Column(String(32), nullable=True)
+    last_synced_at = Column(DateTime(timezone=True), nullable=True)
+    created_by = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    configuration = relationship(
+        "MessagingConfigurationModel", back_populates="templates"
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "messaging_configuration_id",
+            "name",
+            "language",
+            name="uq_whatsapp_templates_config_name_lang",
+        ),
+        Index("ix_whatsapp_templates_org", "organization_id"),
+        Index("ix_whatsapp_templates_meta_id", "meta_template_id"),
+    )
+
+
+class MessagingSuppressionModel(Base):
+    """Do-not-message list — checked before every business-initiated send.
+
+    reason: stop (user replied STOP) | meta_131050 (opted out of marketing at
+    the WhatsApp level) | meta_131049 (per-user marketing cap; expires) |
+    manual. scope: marketing | all. expires_at NULL means permanent.
+    """
+
+    __tablename__ = "messaging_suppressions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    address = Column(String(64), nullable=False)  # wa_id (digits, no '+')
+    scope = Column(
+        String(16),
+        nullable=False,
+        default="marketing",
+        server_default=text("'marketing'"),
+    )
+    reason = Column(String(32), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "address",
+            "scope",
+            name="uq_messaging_suppressions_org_address_scope",
+        ),
+        Index("ix_messaging_suppressions_org_address", "organization_id", "address"),
     )

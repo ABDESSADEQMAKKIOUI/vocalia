@@ -154,6 +154,13 @@ class CreateCampaignRequest(BaseModel):
     workflow_id: int
     source_type: str = Field(..., pattern="^csv$")
     source_id: str  # CSV file key
+    # Dispatch channel: "voice" places telephony calls, "whatsapp" sends
+    # approved template messages via the messaging channel.
+    channel: str = Field("voice", pattern="^(voice|whatsapp)$")
+    # Required when channel == "whatsapp": the org's messaging configuration
+    # and the APPROVED template mirror row to send.
+    messaging_configuration_id: Optional[int] = None
+    whatsapp_template_id: Optional[int] = None
     # Optional during the legacy → multi-config migration window. Required in
     # a follow-up. When omitted, the dispatcher falls back to the org's
     # default config.
@@ -405,24 +412,91 @@ async def create_campaign(
             request.max_concurrency, user.selected_organization_id
         )
 
-    # Resolve which telephony config the campaign is pinned to. Explicit value
-    # wins; otherwise default to the org's default config so legacy clients keep
-    # working through the migration window.
-    telephony_configuration_id = request.telephony_configuration_id
-    if telephony_configuration_id:
-        cfg = await db_client.get_telephony_configuration_for_org(
-            telephony_configuration_id, user.selected_organization_id
-        )
-        if not cfg:
+    # WhatsApp campaigns require an org-owned messaging configuration and an
+    # APPROVED template whose placeholders map onto the CSV columns.
+    if request.channel == "whatsapp":
+        if not request.messaging_configuration_id or not request.whatsapp_template_id:
             raise HTTPException(
-                status_code=400, detail="telephony_configuration_not_found"
+                status_code=400,
+                detail=(
+                    "messaging_configuration_id and whatsapp_template_id are "
+                    "required for WhatsApp campaigns"
+                ),
             )
-    else:
-        default_cfg = await db_client.get_default_telephony_configuration(
-            user.selected_organization_id
+        messaging_config = await db_client.get_messaging_configuration(
+            request.messaging_configuration_id,
+            organization_id=user.selected_organization_id,
         )
-        if default_cfg:
-            telephony_configuration_id = default_cfg.id
+        if not messaging_config:
+            raise HTTPException(
+                status_code=404, detail="Messaging configuration not found"
+            )
+        wa_template = await db_client.get_whatsapp_template(
+            request.whatsapp_template_id,
+            organization_id=user.selected_organization_id,
+        )
+        if not wa_template:
+            raise HTTPException(status_code=404, detail="WhatsApp template not found")
+        if wa_template.status != "APPROVED":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "WhatsApp template must be APPROVED before it can be used "
+                    f"in a campaign (current status: {wa_template.status})"
+                ),
+            )
+
+        from api.services.messaging.whatsapp.template_service import (
+            extract_template_placeholders,
+        )
+
+        placeholders = extract_template_placeholders(
+            wa_template.components, wa_template.parameter_format
+        )
+        # CSV headers are lowercased during source validation, so named
+        # template parameters must already be lowercase to be resolvable.
+        non_lowercase = sorted(p for p in placeholders if p != p.lower())
+        if non_lowercase:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "WhatsApp template parameters must be lowercase to map to "
+                    f"CSV columns: {', '.join(non_lowercase)}"
+                ),
+            )
+        required_columns = {p.lower() for p in placeholders}
+        if required_columns and validation_result.headers and validation_result.rows:
+            template_validation = CampaignSourceSyncService.validate_template_columns(
+                validation_result.headers,
+                validation_result.rows,
+                required_columns,
+            )
+            if not template_validation.is_valid:
+                raise HTTPException(
+                    status_code=400,
+                    detail=template_validation.error.message,
+                )
+
+    # Resolve which telephony config the campaign is pinned to (voice channel
+    # only). Explicit value wins; otherwise default to the org's default config
+    # so legacy clients keep working through the migration window.
+    telephony_configuration_id = None
+    if request.channel == "voice":
+        telephony_configuration_id = request.telephony_configuration_id
+        if telephony_configuration_id:
+            cfg = await db_client.get_telephony_configuration_for_org(
+                telephony_configuration_id, user.selected_organization_id
+            )
+            if not cfg:
+                raise HTTPException(
+                    status_code=400, detail="telephony_configuration_not_found"
+                )
+        else:
+            default_cfg = await db_client.get_default_telephony_configuration(
+                user.selected_organization_id
+            )
+            if default_cfg:
+                telephony_configuration_id = default_cfg.id
 
     # Build retry_config dict if provided
     retry_config = None
@@ -452,6 +526,17 @@ async def create_campaign(
         circuit_breaker=circuit_breaker_config,
         telephony_configuration_id=telephony_configuration_id,
     )
+
+    if request.channel == "whatsapp":
+        # create_campaign predates the channel columns; persist them with a
+        # follow-up update so the shared create path stays untouched. The ids
+        # were validated org-scoped above.
+        campaign = await db_client.update_campaign(
+            campaign_id=campaign.id,
+            channel="whatsapp",
+            messaging_configuration_id=request.messaging_configuration_id,
+            whatsapp_template_id=request.whatsapp_template_id,
+        )
 
     cfg_name = await _get_telephony_configuration_name(
         campaign.telephony_configuration_id, user.selected_organization_id
@@ -535,20 +620,34 @@ async def start_campaign(
     user: UserModel = Depends(get_user),
 ) -> CampaignResponse:
     """Start campaign execution"""
-    # Block start if the org has no telephony configuration at all.
-    configs = await db_client.list_telephony_configurations(
-        user.selected_organization_id
-    )
-    if not configs:
-        raise HTTPException(
-            status_code=401,
-            detail="You must configure telephony first by going to APP_URL/configure-telephony",
-        )
-
     # Verify campaign exists and belongs to organization
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
+
+    # Block start if the campaign's channel has no usable configuration.
+    if campaign.channel == "whatsapp":
+        messaging_config = None
+        if campaign.messaging_configuration_id:
+            messaging_config = await db_client.get_messaging_configuration(
+                campaign.messaging_configuration_id,
+                organization_id=user.selected_organization_id,
+            )
+        if not messaging_config or not messaging_config.is_active:
+            raise HTTPException(
+                status_code=401,
+                detail="You must configure WhatsApp messaging first by going to APP_URL/configure-messaging",
+            )
+    else:
+        # Block start if the org has no telephony configuration at all.
+        configs = await db_client.list_telephony_configurations(
+            user.selected_organization_id
+        )
+        if not configs:
+            raise HTTPException(
+                status_code=401,
+                detail="You must configure telephony first by going to APP_URL/configure-telephony",
+            )
 
     # Check Dograh quota before starting campaign (apply per-workflow
     # model_overrides so we evaluate the keys this campaign will use).
@@ -869,20 +968,34 @@ async def resume_campaign(
     user: UserModel = Depends(get_user),
 ) -> CampaignResponse:
     """Resume a paused campaign"""
-    # Block resume if the org has no telephony configuration at all.
-    configs = await db_client.list_telephony_configurations(
-        user.selected_organization_id
-    )
-    if not configs:
-        raise HTTPException(
-            status_code=401,
-            detail="You must configure telephony first by going to APP_URL/configure-telephony",
-        )
-
     # Verify campaign exists and belongs to organization
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
+
+    # Block resume if the campaign's channel has no usable configuration.
+    if campaign.channel == "whatsapp":
+        messaging_config = None
+        if campaign.messaging_configuration_id:
+            messaging_config = await db_client.get_messaging_configuration(
+                campaign.messaging_configuration_id,
+                organization_id=user.selected_organization_id,
+            )
+        if not messaging_config or not messaging_config.is_active:
+            raise HTTPException(
+                status_code=401,
+                detail="You must configure WhatsApp messaging first by going to APP_URL/configure-messaging",
+            )
+    else:
+        # Block resume if the org has no telephony configuration at all.
+        configs = await db_client.list_telephony_configurations(
+            user.selected_organization_id
+        )
+        if not configs:
+            raise HTTPException(
+                status_code=401,
+                detail="You must configure telephony first by going to APP_URL/configure-telephony",
+            )
 
     # Check Dograh quota before resuming campaign (apply per-workflow
     # model_overrides so we evaluate the keys this campaign will use).

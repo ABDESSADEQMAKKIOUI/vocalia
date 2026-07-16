@@ -15,6 +15,7 @@ import {
   LogOut,
   type LucideIcon,
   Megaphone,
+  MessageCircle,
   Phone,
   Settings,
   TrendingUp,
@@ -108,6 +109,11 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         url: "/telephony-configurations",
         icon: Phone,
         showsTelephonyWarning: true,
+      },
+      {
+        title: "WhatsApp",
+        url: "/whatsapp",
+        icon: MessageCircle,
       },
       {
         title: "Tools",

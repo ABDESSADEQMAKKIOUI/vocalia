@@ -46,6 +46,11 @@ from api.tasks.campaign_tasks import (
 from api.tasks.knowledge_base_processing import process_knowledge_base_document
 from api.tasks.run_integrations import run_integrations_post_workflow_run
 from api.tasks.webhook_delivery import deliver_webhook, sweep_webhook_deliveries
+from api.tasks.whatsapp_campaign_tasks import process_whatsapp_campaign_batch
+from api.tasks.whatsapp_tasks import (
+    process_whatsapp_inbound,
+    sweep_whatsapp_conversations,
+)
 from api.tasks.workflow_completion import process_workflow_completion
 
 
@@ -57,8 +62,20 @@ class WorkerSettings:
         process_campaign_batch,
         process_knowledge_base_document,
         deliver_webhook,
+        process_whatsapp_inbound,
+        sweep_whatsapp_conversations,
+        process_whatsapp_campaign_batch,
     ]
     cron_jobs = [
+        # Close WhatsApp conversations idle past the 24h service window so
+        # post-run completion (QA / webhooks / integrations) fires, and purge
+        # expired wamid/suppression rows.
+        cron(
+            sweep_whatsapp_conversations,
+            minute={15},
+            second=0,
+            run_at_startup=False,
+        ),
         # Safety net for webhook deliveries whose ARQ job was lost (worker
         # restart / Redis flush): re-enqueue any pending delivery that is overdue.
         cron(

@@ -3,7 +3,7 @@
 import { ArrowLeft, ChevronDown, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ITimezoneOption } from 'react-timezone-select';
 import { toast } from 'sonner';
 
@@ -13,7 +13,7 @@ import {
     getWorkflowsSummaryApiV1WorkflowSummaryGet,
     listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet
 } from '@/client/sdk.gen';
-import type { TelephonyConfigurationListItem, WorkflowSummaryResponse } from '@/client/types.gen';
+import type { CreateCampaignRequest, TelephonyConfigurationListItem, WorkflowSummaryResponse } from '@/client/types.gen';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -27,15 +27,23 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { useAuth } from '@/lib/auth';
+import {
+    listMessagingConfigurations,
+    listWhatsAppTemplates,
+    type MessagingConfiguration,
+    type WhatsAppTemplate,
+} from '@/lib/messagingApi';
 
 import CampaignAdvancedSettings, { getTimezoneValue, type TimeSlot } from '../CampaignAdvancedSettings';
 import CsvUploadSelector from '../CsvUploadSelector';
+import WhatsAppChannelFields from '../WhatsAppChannelFields';
 
 export default function NewCampaignPage() {
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
     const router = useRouter();
 
     // Form state
+    const [channel, setChannel] = useState<'voice' | 'whatsapp'>('voice');
     const [campaignName, setCampaignName] = useState('');
     const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('');
     const [sourceType, setSourceType] = useState<'csv'>('csv');
@@ -52,6 +60,15 @@ export default function NewCampaignPage() {
     const [telephonyConfigs, setTelephonyConfigs] = useState<TelephonyConfigurationListItem[]>([]);
     const [selectedTelephonyConfigId, setSelectedTelephonyConfigId] = useState<string>('');
     const [isLoadingTelephonyConfigs, setIsLoadingTelephonyConfigs] = useState(true);
+
+    // Messaging (WhatsApp channel) state
+    const [messagingConfigs, setMessagingConfigs] = useState<MessagingConfiguration[]>([]);
+    const [selectedMessagingConfigId, setSelectedMessagingConfigId] = useState<string>('');
+    const [isLoadingMessagingConfigs, setIsLoadingMessagingConfigs] = useState(false);
+    const [whatsappTemplates, setWhatsappTemplates] = useState<WhatsAppTemplate[]>([]);
+    const [selectedWhatsappTemplateId, setSelectedWhatsappTemplateId] = useState<string>('');
+    const [isLoadingWhatsappTemplates, setIsLoadingWhatsappTemplates] = useState(false);
+    const hasFetchedMessagingConfigs = useRef(false);
 
     // Advanced settings state
     const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
@@ -141,6 +158,64 @@ export default function NewCampaignPage() {
             setIsLoadingTelephonyConfigs(false);
         }
     }, [user, getAccessToken]);
+
+    // Fetch messaging configurations — lazily, on the first switch to the
+    // WhatsApp channel (auth is attached by the messagingApi wrapper).
+    const fetchMessagingConfigs = useCallback(async () => {
+        setIsLoadingMessagingConfigs(true);
+        try {
+            const configs = await listMessagingConfigurations();
+            setMessagingConfigs(configs);
+            if (configs.length > 0) {
+                setSelectedMessagingConfigId(String(configs[0].id));
+            }
+        } catch (error) {
+            console.error('Failed to fetch messaging configurations:', error);
+            toast.error('Failed to load messaging configurations');
+        } finally {
+            setIsLoadingMessagingConfigs(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (channel !== 'whatsapp' || !user || hasFetchedMessagingConfigs.current) return;
+        hasFetchedMessagingConfigs.current = true;
+        fetchMessagingConfigs();
+    }, [channel, user, fetchMessagingConfigs]);
+
+    // Fetch approved templates for the selected messaging configuration
+    useEffect(() => {
+        if (!user || !selectedMessagingConfigId) {
+            setWhatsappTemplates([]);
+            return;
+        }
+        let cancelled = false;
+        const fetchTemplates = async () => {
+            setIsLoadingWhatsappTemplates(true);
+            try {
+                const templates = await listWhatsAppTemplates({
+                    configurationId: parseInt(selectedMessagingConfigId),
+                    status: 'APPROVED',
+                });
+                if (!cancelled) {
+                    setWhatsappTemplates(templates);
+                }
+            } catch (error) {
+                console.error('Failed to fetch WhatsApp templates:', error);
+                if (!cancelled) {
+                    toast.error('Failed to load WhatsApp templates');
+                }
+            } finally {
+                if (!cancelled) {
+                    setIsLoadingWhatsappTemplates(false);
+                }
+            }
+        };
+        fetchTemplates();
+        return () => {
+            cancelled = true;
+        };
+    }, [user, selectedMessagingConfigId]);
 
     // Fetch campaign limits
     const fetchCampaignDefaults = useCallback(async () => {
@@ -239,8 +314,13 @@ export default function NewCampaignPage() {
         e.preventDefault();
         setCreateError(null);
 
-        if (!campaignName || !selectedWorkflowId || !sourceId || !selectedTelephonyConfigId) {
+        if (!campaignName || !selectedWorkflowId || !sourceId || (channel === 'voice' && !selectedTelephonyConfigId)) {
             toast.error('Please fill in all fields');
+            return;
+        }
+
+        if (channel === 'whatsapp' && (!selectedMessagingConfigId || !selectedWhatsappTemplateId)) {
+            toast.error('Please select a messaging configuration and a WhatsApp template');
             return;
         }
 
@@ -294,18 +374,28 @@ export default function NewCampaignPage() {
             };
 
 
+            // TODO: regenerate SDK — channel, messaging_configuration_id and
+            // whatsapp_template_id are not in the generated CreateCampaignRequest yet.
+            const requestBody = {
+                name: campaignName,
+                workflow_id: parseInt(selectedWorkflowId),
+                source_type: sourceType,
+                source_id: sourceId,
+                channel,
+                ...(channel === 'voice'
+                    ? { telephony_configuration_id: parseInt(selectedTelephonyConfigId) }
+                    : {
+                        messaging_configuration_id: parseInt(selectedMessagingConfigId),
+                        whatsapp_template_id: parseInt(selectedWhatsappTemplateId),
+                    }),
+                retry_config: retryConfig,
+                max_concurrency: maxConcurrencyValue,
+                schedule_config: scheduleConfig,
+                circuit_breaker: circuitBreakerConfig,
+            };
+
             const response = await createCampaignApiV1CampaignCreatePost({
-                body: {
-                    name: campaignName,
-                    workflow_id: parseInt(selectedWorkflowId),
-                    source_type: sourceType,
-                    source_id: sourceId,
-                    telephony_configuration_id: parseInt(selectedTelephonyConfigId),
-                    retry_config: retryConfig,
-                    max_concurrency: maxConcurrencyValue,
-                    schedule_config: scheduleConfig,
-                    circuit_breaker: circuitBreakerConfig,
-                },
+                body: requestBody as CreateCampaignRequest,
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                 }
@@ -346,6 +436,13 @@ export default function NewCampaignPage() {
         setCreateError(null);
     };
 
+    // Handle messaging configuration change — templates belong to a
+    // configuration, so reset the template selection
+    const handleMessagingConfigChange = (value: string) => {
+        setSelectedMessagingConfigId(value);
+        setSelectedWhatsappTemplateId('');
+    };
+
     return (
         <div className="container mx-auto p-6 pb-12 space-y-6 max-w-2xl">
             <div>
@@ -370,6 +467,26 @@ export default function NewCampaignPage() {
                     </CardHeader>
                     <CardContent>
                         <form onSubmit={handleSubmit} className="space-y-6">
+                            <div className="space-y-2">
+                                <Label htmlFor="channel">Canal</Label>
+                                <Select
+                                    value={channel}
+                                    onValueChange={(value) => setChannel(value as 'voice' | 'whatsapp')}
+                                    required
+                                >
+                                    <SelectTrigger id="channel">
+                                        <SelectValue placeholder="Sélectionner un canal" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="voice">Appels vocaux</SelectItem>
+                                        <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-sm text-muted-foreground">
+                                    Choisissez le canal utilisé pour contacter chaque ligne de la source de données
+                                </p>
+                            </div>
+
                             <div className="space-y-2">
                                 <Label htmlFor="campaign-name">Campaign Name</Label>
                                 <Input
@@ -421,51 +538,66 @@ export default function NewCampaignPage() {
                                 </p>
                             </div>
 
-                            <div className="space-y-2">
-                                <Label htmlFor="telephony-config">Telephony Configuration</Label>
-                                {!isLoadingTelephonyConfigs && telephonyConfigs.length === 0 ? (
-                                    <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                                        No telephony configurations yet.{' '}
-                                        <Link
-                                            href="/telephony-configurations"
-                                            className="underline text-foreground"
+                            {channel === 'voice' && (
+                                <div className="space-y-2">
+                                    <Label htmlFor="telephony-config">Telephony Configuration</Label>
+                                    {!isLoadingTelephonyConfigs && telephonyConfigs.length === 0 ? (
+                                        <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                                            No telephony configurations yet.{' '}
+                                            <Link
+                                                href="/telephony-configurations"
+                                                className="underline text-foreground"
+                                            >
+                                                Add one
+                                            </Link>{' '}
+                                            to create a campaign.
+                                        </div>
+                                    ) : (
+                                        <Select
+                                            value={selectedTelephonyConfigId}
+                                            onValueChange={setSelectedTelephonyConfigId}
+                                            required
                                         >
-                                            Add one
-                                        </Link>{' '}
-                                        to create a campaign.
-                                    </div>
-                                ) : (
-                                    <Select
-                                        value={selectedTelephonyConfigId}
-                                        onValueChange={setSelectedTelephonyConfigId}
-                                        required
-                                    >
-                                        <SelectTrigger id="telephony-config">
-                                            <SelectValue placeholder="Select a telephony configuration" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {isLoadingTelephonyConfigs ? (
-                                                <SelectItem value="loading" disabled>
-                                                    Loading configurations...
-                                                </SelectItem>
-                                            ) : (
-                                                telephonyConfigs.map((config) => (
-                                                    <SelectItem
-                                                        key={config.id}
-                                                        value={config.id.toString()}
-                                                    >
-                                                        {config.name} ({config.provider})
-                                                        {config.is_default_outbound ? ' - default' : ''}
+                                            <SelectTrigger id="telephony-config">
+                                                <SelectValue placeholder="Select a telephony configuration" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {isLoadingTelephonyConfigs ? (
+                                                    <SelectItem value="loading" disabled>
+                                                        Loading configurations...
                                                     </SelectItem>
-                                                ))
-                                            )}
-                                        </SelectContent>
-                                    </Select>
-                                )}
-                                <p className="text-sm text-muted-foreground">
-                                    Outbound calls for this campaign will use this configuration&apos;s caller IDs
-                                </p>
-                            </div>
+                                                ) : (
+                                                    telephonyConfigs.map((config) => (
+                                                        <SelectItem
+                                                            key={config.id}
+                                                            value={config.id.toString()}
+                                                        >
+                                                            {config.name} ({config.provider})
+                                                            {config.is_default_outbound ? ' - default' : ''}
+                                                        </SelectItem>
+                                                    ))
+                                                )}
+                                            </SelectContent>
+                                        </Select>
+                                    )}
+                                    <p className="text-sm text-muted-foreground">
+                                        Outbound calls for this campaign will use this configuration&apos;s caller IDs
+                                    </p>
+                                </div>
+                            )}
+
+                            {channel === 'whatsapp' && (
+                                <WhatsAppChannelFields
+                                    messagingConfigs={messagingConfigs}
+                                    isLoadingMessagingConfigs={isLoadingMessagingConfigs}
+                                    selectedMessagingConfigId={selectedMessagingConfigId}
+                                    onMessagingConfigChange={handleMessagingConfigChange}
+                                    templates={whatsappTemplates}
+                                    isLoadingTemplates={isLoadingWhatsappTemplates}
+                                    selectedTemplateId={selectedWhatsappTemplateId}
+                                    onTemplateChange={setSelectedWhatsappTemplateId}
+                                />
+                            )}
 
                             <div className="space-y-2">
                                 <Label htmlFor="source-type">Data Source Type</Label>
@@ -555,7 +687,9 @@ export default function NewCampaignPage() {
                             <div className="flex gap-4 pt-4">
                                 <Button
                                     type="submit"
-                                    disabled={isSubmitting || !campaignName || !selectedWorkflowId || !sourceId || !selectedTelephonyConfigId}
+                                    disabled={isSubmitting || !campaignName || !selectedWorkflowId || !sourceId || (channel === 'voice'
+                                        ? !selectedTelephonyConfigId
+                                        : (!selectedMessagingConfigId || !selectedWhatsappTemplateId))}
                                 >
                                     {isSubmitting ? 'Creating...' : 'Create Campaign'}
                                 </Button>

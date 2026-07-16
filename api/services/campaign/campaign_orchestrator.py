@@ -412,9 +412,16 @@ class CampaignOrchestrator:
             has_work = await self._has_pending_work(campaign_id)
 
             if has_work:
-                # Schedule batch immediately
+                # Schedule batch immediately on the channel-appropriate task:
+                # WhatsApp campaigns dispatch template messages, voice
+                # campaigns dispatch telephony calls.
+                batch_function = (
+                    FunctionNames.PROCESS_WHATSAPP_CAMPAIGN_BATCH
+                    if campaign.channel == "whatsapp"
+                    else FunctionNames.PROCESS_CAMPAIGN_BATCH
+                )
                 await enqueue_job(
-                    FunctionNames.PROCESS_CAMPAIGN_BATCH,
+                    batch_function,
                     campaign_id,
                     10,  # batch_size
                 )
