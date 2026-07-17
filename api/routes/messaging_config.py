@@ -18,6 +18,8 @@ from sqlalchemy.exc import IntegrityError
 from api.db import db_client
 from api.db.models import MessagingConfigurationModel, UserModel
 from api.schemas.messaging_config import (
+    EmbeddedSignupCompleteRequest,
+    EmbeddedSignupConfigResponse,
     MessagingAddressCreateRequest,
     MessagingAddressResponse,
     MessagingAddressUpdateRequest,
@@ -35,6 +37,11 @@ from api.services.configuration.masking import (
     contains_masked_key,
     is_mask_of,
     mask_key,
+)
+from api.services.messaging.whatsapp.client import WhatsAppApiError
+from api.services.messaging.whatsapp.embedded_signup import (
+    embedded_signup_public_config,
+    provision_from_embedded_signup,
 )
 from api.utils.common import get_backend_endpoints
 from api.utils.crypto import decrypt_credentials, encrypt_credentials
@@ -164,6 +171,44 @@ async def get_webhook_info(
         verify_token_set=bool(os.environ.get("WHATSAPP_VERIFY_TOKEN")),
         app_secret_set=bool(os.environ.get("WHATSAPP_APP_SECRET")),
     )
+
+
+# ---------------------------------------------------------------------------
+# Embedded Signup (registered before /{configuration_id} routes)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/embedded-signup/config", response_model=EmbeddedSignupConfigResponse
+)
+async def get_embedded_signup_config(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    """Public config the UI needs to open the Meta Embedded Signup popup."""
+    return EmbeddedSignupConfigResponse(**embedded_signup_public_config())
+
+
+@router.post("/embedded-signup", response_model=MessagingConfigurationResponse)
+async def complete_embedded_signup(
+    request: EmbeddedSignupCompleteRequest,
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    """Exchange the Embedded Signup code and auto-create the WhatsApp
+    configuration (credentials encrypted at rest, masked on read) for the
+    caller's organization."""
+    try:
+        config = await provision_from_embedded_signup(
+            organization_id=user.selected_organization_id,
+            created_by=user.id,
+            code=request.code,
+            waba_id=request.waba_id,
+            phone_number_id=request.phone_number_id,
+            business_id=request.business_id,
+            name=request.name,
+        )
+    except (WhatsAppApiError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _configuration_response(config)
 
 
 # ---------------------------------------------------------------------------

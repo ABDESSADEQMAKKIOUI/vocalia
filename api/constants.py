@@ -205,3 +205,22 @@ OSS_JWT_SECRET = os.getenv("OSS_JWT_SECRET", "change-me-in-production")
 OSS_JWT_EXPIRY_HOURS = int(os.getenv("OSS_JWT_EXPIRY_HOURS", "720"))  # 30 days
 
 TUNER_BASE_URL = os.getenv("TUNER_BASE_URL", "https://api.usetuner.ai")
+
+# WhatsApp Cloud API (Meta) — Embedded Signup + webhook signature verification.
+#
+# WHATSAPP_APP_ID and WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID drive the Facebook
+# Login popup the UI opens for Embedded Signup; both must be set for Embedded
+# Signup to be offered (see services/messaging/whatsapp/embedded_signup.py).
+# WHATSAPP_APP_SECRET is used both to exchange the popup's OAuth code for a
+# long-lived token and by the webhook route to verify Meta's
+# X-Hub-Signature-256. WHATSAPP_GRAPH_VERSION pins the Graph API version.
+#
+# These are read live from os.environ where they are used so a running
+# deployment reflects env changes without a restart (matching the webhook
+# route); the values here document the deployment configuration surface.
+WHATSAPP_APP_ID = os.getenv("WHATSAPP_APP_ID") or None
+WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET") or None
+WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID = (
+    os.getenv("WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID") or None
+)
+WHATSAPP_GRAPH_VERSION = os.getenv("WHATSAPP_GRAPH_VERSION", "v23.0")

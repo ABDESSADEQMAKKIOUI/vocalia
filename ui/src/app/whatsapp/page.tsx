@@ -51,6 +51,7 @@ import {
 
 import { AddressFormDialog } from './components/AddressFormDialog';
 import { ConfigFormDialog } from './components/ConfigFormDialog';
+import { ConnectWhatsAppButton } from './components/ConnectWhatsAppButton';
 import { SuppressionsCard } from './components/SuppressionsCard';
 import { WebhookInfoCard } from './components/WebhookInfoCard';
 
@@ -241,15 +242,18 @@ export default function WhatsAppConfigurationsPage() {
                                 Gérer les modèles
                             </Link>
                         </Button>
-                        <Button onClick={() => setCreateOpen(true)}>
+                        <Button variant="outline" onClick={() => setCreateOpen(true)}>
                             <Plus className="h-4 w-4 mr-2" />
-                            Ajouter une configuration
+                            Ajouter manuellement (avancé)
                         </Button>
                     </div>
                 </div>
 
                 <section className="space-y-3">
-                    <h2 className="text-xl font-semibold">Configurations</h2>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                        <h2 className="text-xl font-semibold">Configurations</h2>
+                        <ConnectWhatsAppButton onConnected={fetchConfigurations} />
+                    </div>
                     {loadingConfigs ? (
                         <div className="grid gap-3">
                             <Skeleton className="h-32 w-full" />
@@ -265,9 +269,12 @@ export default function WhatsAppConfigurationsPage() {
                                 </CardDescription>
                             </CardHeader>
                             <CardContent>
-                                <Button onClick={() => setCreateOpen(true)}>
+                                <Button
+                                    variant="outline"
+                                    onClick={() => setCreateOpen(true)}
+                                >
                                     <Plus className="h-4 w-4 mr-2" />
-                                    Ajouter une configuration
+                                    Ajouter manuellement (avancé)
                                 </Button>
                             </CardContent>
                         </Card>

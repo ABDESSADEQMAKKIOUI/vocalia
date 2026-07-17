@@ -5,8 +5,11 @@ import { getServerBackendUrl } from '@/lib/apiClient';
 
 const OSS_TOKEN_COOKIE = 'dograh_auth_token';
 
-// Paths that don't require authentication in OSS mode
-const PUBLIC_PATHS = ['/auth/login', '/auth/signup'];
+// Paths that don't require authentication in OSS mode.
+// `/embed` serves the voice widget script + assets, which are loaded by
+// logged-out visitors on third-party sites; the embed session is secured by
+// the backend (embed token + allowed-domain checks), not by gating the script.
+const PUBLIC_PATHS = ['/auth/login', '/auth/signup', '/embed'];
 
 let cachedAuthProvider: string | null = null;
 

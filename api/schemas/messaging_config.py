@@ -120,6 +120,41 @@ class MessagingConfigurationListResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Embedded Signup (Meta "Connect with WhatsApp" / Facebook Login popup)
+# ---------------------------------------------------------------------------
+
+
+class EmbeddedSignupConfigResponse(BaseModel):
+    """Browser-safe config the UI needs to open the Facebook Login popup.
+
+    ``enabled`` is False unless both the app id and the Facebook Login
+    configuration id are set for the deployment; ``app_id`` and ``config_id``
+    are public by design (no secret is ever returned here).
+    """
+
+    enabled: bool
+    app_id: Optional[str] = None
+    config_id: Optional[str] = None
+    graph_version: str
+
+
+class EmbeddedSignupCompleteRequest(BaseModel):
+    """Body for ``POST /messaging/configurations/embedded-signup`` — the
+    values the Facebook Login popup hands back to the browser.
+
+    ``code`` is a short-lived OAuth code exchanged server-side for a
+    long-lived token; ``waba_id`` and ``phone_number_id`` identify the
+    account and business number that were just linked.
+    """
+
+    code: str = Field(..., min_length=1)
+    waba_id: str = Field(..., min_length=1)
+    phone_number_id: str = Field(..., min_length=1)
+    business_id: Optional[str] = None
+    name: Optional[str] = Field(default=None, max_length=64)
+
+
+# ---------------------------------------------------------------------------
 # Suppressions (do-not-message list)
 # ---------------------------------------------------------------------------
 

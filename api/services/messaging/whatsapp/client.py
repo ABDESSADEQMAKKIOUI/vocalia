@@ -252,6 +252,89 @@ class WhatsAppClient:
             logger.warning(f"Failed to mark WhatsApp message {wamid} as read: {e}")
 
     # ------------------------------------------------------------------
+    # Embedded Signup / onboarding
+    # ------------------------------------------------------------------
+
+    @classmethod
+    async def exchange_oauth_code(
+        cls,
+        app_id: str,
+        app_secret: str,
+        code: str,
+        *,
+        graph_version: str = DEFAULT_API_VERSION,
+    ) -> str:
+        """Exchange a short-lived Embedded Signup OAuth code for a long-lived
+        business-integration access token.
+
+        ``GET {base}/{graph_version}/oauth/access_token
+              ?client_id=&client_secret=&code=`` — the app credentials travel
+        as query params, so no bearer token is sent. Raises WhatsAppApiError
+        on any non-2xx response, network failure, or a body without a token.
+        """
+        url = f"{GRAPH_API_BASE_URL}/{graph_version}/oauth/access_token"
+        params = {
+            "client_id": app_id,
+            "client_secret": app_secret,
+            "code": code,
+        }
+        timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_SECONDS)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.request("GET", url, params=params) as response:
+                    status = response.status
+                    text = await response.text()
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            raise WhatsAppApiError(
+                f"Network error exchanging WhatsApp OAuth code: {e}",
+                retry_kind="backoff",
+            ) from e
+
+        try:
+            payload = json.loads(text) if text else {}
+        except json.JSONDecodeError:
+            payload = {}
+
+        if not 200 <= status < 300:
+            cls._raise_api_error(status, payload, fallback_text=text)
+
+        access_token = (
+            payload.get("access_token") if isinstance(payload, dict) else None
+        )
+        if not access_token:
+            raise WhatsAppApiError(
+                "WhatsApp OAuth code exchange returned no access_token",
+                retry_kind="never",
+            )
+        return access_token
+
+    async def get_phone_number_info(self, phone_number_id: str) -> dict:
+        """Fetch a business phone number's metadata.
+
+        Returns the Graph node with ``display_phone_number``, ``verified_name``
+        and ``id`` fields (uses ``self.access_token``).
+        """
+        return await self._request(
+            "GET",
+            str(phone_number_id),
+            params={"fields": "display_phone_number,verified_name,id"},
+        )
+
+    async def subscribe_app_to_waba(self, waba_id: str) -> dict:
+        """Subscribe this app to the WABA's webhooks so the account delivers
+        message/status callbacks. ``POST {waba_id}/subscribed_apps``."""
+        return await self._request("POST", f"{waba_id}/subscribed_apps")
+
+    async def register_phone_number(self, phone_number_id: str, pin: str) -> dict:
+        """Register a phone number for Cloud API messaging, setting its
+        two-step-verification PIN. ``POST {phone_number_id}/register``."""
+        return await self._request(
+            "POST",
+            f"{phone_number_id}/register",
+            json_body={"messaging_product": "whatsapp", "pin": pin},
+        )
+
+    # ------------------------------------------------------------------
     # Media
     # ------------------------------------------------------------------
 

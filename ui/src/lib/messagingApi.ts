@@ -60,6 +60,14 @@ export interface WebhookInfo {
     app_secret_set: boolean;
 }
 
+export interface EmbeddedSignupConfig {
+    /** True only when both the app id and login-config id env vars are set. */
+    enabled: boolean;
+    app_id: string | null;
+    config_id: string | null;
+    graph_version: string;
+}
+
 export interface MessagingSuppression {
     id: number;
     address: string;
@@ -134,6 +142,15 @@ export interface MessagingConfigurationUpdatePayload {
     name?: string;
     is_active?: boolean;
     credentials?: MessagingCredentialsPayload;
+}
+
+export interface EmbeddedSignupCompletePayload {
+    /** Short-lived auth code from Meta's Embedded Signup popup. */
+    code: string;
+    waba_id: string;
+    phone_number_id: string;
+    business_id?: string | null;
+    name?: string | null;
 }
 
 export interface MessagingAddressUpdatePayload {
@@ -227,6 +244,29 @@ export async function deleteMessagingConfiguration(
         "delete",
         `/api/v1/messaging/configurations/${id}`,
         "Failed to delete messaging configuration",
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Embedded Signup (Meta "Connect a WhatsApp account" flow)
+// ---------------------------------------------------------------------------
+
+export async function getEmbeddedSignupConfig(): Promise<EmbeddedSignupConfig> {
+    return request<EmbeddedSignupConfig>(
+        "get",
+        "/api/v1/messaging/configurations/embedded-signup/config",
+        "Failed to load embedded signup configuration",
+    );
+}
+
+export async function completeEmbeddedSignup(
+    body: EmbeddedSignupCompletePayload,
+): Promise<MessagingConfiguration> {
+    return request<MessagingConfiguration>(
+        "post",
+        "/api/v1/messaging/configurations/embedded-signup",
+        "Failed to complete embedded signup",
+        { body },
     );
 }
 
