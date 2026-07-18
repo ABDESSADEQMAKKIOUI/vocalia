@@ -1602,6 +1602,11 @@ class WhatsAppConversationModel(Base):
     state = Column(
         String(16), nullable=False, default="open", server_default=text("'open'")
     )
+    # Human takeover: when True, inbound messages are recorded but the agent
+    # does not generate/send replies — a human answers from the inbox UI.
+    agent_paused = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     service_window_expires_at = Column(DateTime(timezone=True), nullable=True)
     last_inbound_at = Column(DateTime(timezone=True), nullable=True)
     last_outbound_at = Column(DateTime(timezone=True), nullable=True)

@@ -423,3 +423,97 @@ export async function syncWhatsAppTemplates(
         { query: { configuration_id: configurationId } },
     );
 }
+
+// ---------------------------------------------------------------------------
+// WhatsApp inbox (conversations + thread)
+// Mirrors the /api/v1/messaging/whatsapp/conversations routes.
+// ---------------------------------------------------------------------------
+
+export interface WhatsAppInboxConversation {
+    id: number;
+    /** Contact's WhatsApp id (phone number without the leading "+"). */
+    wa_id: string;
+    profile_name?: string | null;
+    /** Meta's phone_number_id of the business number. */
+    phone_number_id: string;
+    /** Display number of the business address, e.g. "+14155551234". */
+    display_number?: string | null;
+    state: string;
+    /** True when the AI agent is paused and a human answers manually. */
+    agent_paused: boolean;
+    /** End of the 24h customer-service window (ISO), null when never opened. */
+    service_window_expires_at?: string | null;
+    last_inbound_at?: string | null;
+    last_outbound_at?: string | null;
+    workflow_run_id?: number | null;
+    campaign_id?: number | null;
+    /** Name of the workflow driving the run, null when unavailable. */
+    agent_name?: string | null;
+    updated_at: string;
+    /** Last message text truncated to 80 chars, null when empty. */
+    last_message_preview?: string | null;
+}
+
+export interface WhatsAppInboxMessage {
+    direction: "in" | "out";
+    origin: "user" | "agent" | "human" | "template";
+    text: string;
+    /** ISO timestamp, null when unknown. */
+    timestamp?: string | null;
+}
+
+export interface WhatsAppInboxDetail {
+    conversation: WhatsAppInboxConversation;
+    /** Chronological order (oldest first). */
+    messages: WhatsAppInboxMessage[];
+}
+
+export async function listWhatsAppConversations(params?: {
+    state?: "open" | "closed" | "all";
+}): Promise<WhatsAppInboxConversation[]> {
+    const query: Record<string, unknown> = {};
+    if (params?.state !== undefined) {
+        query.state = params.state;
+    }
+    const data = await request<{ conversations: WhatsAppInboxConversation[] }>(
+        "get",
+        "/api/v1/messaging/whatsapp/conversations",
+        "Failed to load conversations",
+        { query },
+    );
+    return data.conversations ?? [];
+}
+
+export async function getWhatsAppConversation(
+    id: number,
+): Promise<WhatsAppInboxDetail> {
+    return request<WhatsAppInboxDetail>(
+        "get",
+        `/api/v1/messaging/whatsapp/conversations/${id}`,
+        "Failed to load conversation",
+    );
+}
+
+export async function sendWhatsAppReply(
+    id: number,
+    text: string,
+): Promise<WhatsAppInboxDetail> {
+    return request<WhatsAppInboxDetail>(
+        "post",
+        `/api/v1/messaging/whatsapp/conversations/${id}/send`,
+        "Failed to send message",
+        { body: { text } },
+    );
+}
+
+export async function setWhatsAppAgentPaused(
+    id: number,
+    paused: boolean,
+): Promise<{ id: number; agent_paused: boolean }> {
+    return request<{ id: number; agent_paused: boolean }>(
+        "post",
+        `/api/v1/messaging/whatsapp/conversations/${id}/agent`,
+        "Failed to update agent state",
+        { body: { paused } },
+    );
+}

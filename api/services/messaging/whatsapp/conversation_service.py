@@ -329,6 +329,30 @@ async def _process_inbound_message(
         # The message still reaches the workflow so it can acknowledge the
         # opt-out in-conversation.
 
+    # Human takeover: when the agent is paused for this conversation, record
+    # the user message (and refresh the service window) but do NOT execute an
+    # agent turn — a human replies from the inbox. Re-fetched by id so a pause
+    # toggled after the conversation row was loaded above is still honored.
+    fresh_conversation = await db_client.get_whatsapp_conversation(conversation.id)
+    if fresh_conversation is not None and fresh_conversation.agent_paused:
+        await _record_inbound_without_agent_turn(
+            run_id,
+            organization_id=address.organization_id,
+            user_text=normalized_text,
+            wamid=msg.wamid,
+        )
+        await db_client.touch_whatsapp_conversation(
+            conversation.id,
+            profile_name=msg.profile_name,
+            last_inbound_at=now,
+            service_window_expires_at=window_expires_at,
+        )
+        logger.info(
+            f"Agent paused for WhatsApp conversation {conversation.id}; "
+            f"recorded message {msg.wamid} without an agent turn"
+        )
+        return
+
     from api.services.messaging.whatsapp.client import (
         WhatsAppApiError,
         client_for_configuration,
@@ -538,6 +562,65 @@ async def _abandon_workflow_run(run_id: int, error_message: str) -> None:
         )
     except Exception as e:
         logger.error(f"Failed to mark abandoned WhatsApp workflow run {run_id}: {e}")
+
+
+async def _record_inbound_without_agent_turn(
+    run_id: int, *, organization_id: int, user_text: str, wamid: str
+) -> None:
+    """Append the user message as a completed, never-executed turn.
+
+    Used while the agent is paused (human takeover): the turn mirrors the
+    pending-turn shape but is stored completed with no assistant message,
+    and the user text is appended to the checkpoint's serialized LLM
+    context (plain ``{"role": "user", "content": ...}`` — the same shape
+    the runner adds for executed turns) so a later un-paused agent turn
+    sees the full exchange.
+    """
+    text_session = await _load_or_bootstrap_text_session(
+        run_id, organization_id=organization_id
+    )
+    if text_session is None:
+        logger.error(
+            f"No text session for WhatsApp workflow run {run_id}; "
+            f"paused-agent message {wamid} not recorded"
+        )
+        return
+
+    now_iso = datetime.now(UTC).isoformat()
+    session_data = dict(text_session.session_data or {})
+    session_data["turns"] = [
+        *(session_data.get("turns") or []),
+        {
+            "id": f"turn_{uuid4().hex[:12]}",
+            "status": "completed",
+            "created_at": now_iso,
+            "user_message": {"text": user_text, "created_at": now_iso},
+            "assistant_message": None,
+            "events": [],
+            "usage": {},
+        },
+    ]
+
+    checkpoint = dict(text_session.checkpoint or {})
+    checkpoint["messages"] = [
+        *(checkpoint.get("messages") or []),
+        {"role": "user", "content": user_text},
+    ]
+
+    try:
+        await db_client.update_workflow_run_text_session(
+            run_id,
+            session_data=session_data,
+            checkpoint=checkpoint,
+            expected_revision=text_session.revision,
+        )
+    except Exception as e:
+        # The lease serializes inbound processing, so conflicts are rare;
+        # losing one paused-mode transcript entry must not fail the webhook.
+        logger.error(
+            f"Failed to record paused-agent WhatsApp message {wamid} "
+            f"for run {run_id}: {e}"
+        )
 
 
 async def _load_or_bootstrap_text_session(

@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquareText, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Inbox, MessageSquareText, Pencil, Plus, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -236,6 +236,12 @@ export default function WhatsAppConfigurationsPage() {
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
+                        <Button asChild>
+                            <Link href="/whatsapp/inbox">
+                                <Inbox className="h-4 w-4 mr-2" />
+                                Boîte de réception
+                            </Link>
+                        </Button>
                         <Button variant="outline" asChild>
                             <Link href="/whatsapp/templates">
                                 <MessageSquareText className="h-4 w-4 mr-2" />

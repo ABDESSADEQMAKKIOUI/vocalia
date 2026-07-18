@@ -222,15 +222,58 @@ class MessagingClient(BaseDBClient):
             return result.scalars().first()
 
     async def get_whatsapp_conversation(
-        self, conversation_id: int
+        self, conversation_id: int, *, organization_id: int | None = None
     ) -> WhatsAppConversationModel | None:
         async with self.async_session() as session:
-            result = await session.execute(
-                select(WhatsAppConversationModel).where(
-                    WhatsAppConversationModel.id == conversation_id
-                )
+            query = (
+                select(WhatsAppConversationModel)
+                .options(joinedload(WhatsAppConversationModel.messaging_address))
+                .where(WhatsAppConversationModel.id == conversation_id)
             )
+            if organization_id is not None:
+                query = query.where(
+                    WhatsAppConversationModel.organization_id == organization_id
+                )
+            result = await session.execute(query)
             return result.scalars().first()
+
+    async def list_whatsapp_conversations(
+        self,
+        organization_id: int,
+        *,
+        state: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[WhatsAppConversationModel]:
+        """Inbox listing, most recently active first (address eager-loaded)."""
+        async with self.async_session() as session:
+            query = (
+                select(WhatsAppConversationModel)
+                .options(joinedload(WhatsAppConversationModel.messaging_address))
+                .where(WhatsAppConversationModel.organization_id == organization_id)
+                .order_by(WhatsAppConversationModel.updated_at.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+            if state and state != "all":
+                query = query.where(WhatsAppConversationModel.state == state)
+            result = await session.execute(query)
+            return list(result.scalars().unique().all())
+
+    async def set_whatsapp_conversation_agent_paused(
+        self, conversation_id: int, *, organization_id: int, paused: bool
+    ) -> bool:
+        async with self.async_session() as session:
+            result = await session.execute(
+                update(WhatsAppConversationModel)
+                .where(WhatsAppConversationModel.id == conversation_id)
+                .where(
+                    WhatsAppConversationModel.organization_id == organization_id
+                )
+                .values(agent_paused=paused, updated_at=datetime.now(UTC))
+            )
+            await session.commit()
+            return result.rowcount > 0
 
     async def get_whatsapp_conversation_by_run(
         self, workflow_run_id: int
