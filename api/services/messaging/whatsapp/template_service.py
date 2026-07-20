@@ -386,6 +386,50 @@ def _text_parameter(token: str, fmt: str, values: dict[str, str]) -> dict:
     return parameter
 
 
+def render_template_display_text(
+    components: list[dict],
+    parameter_format: str,
+    values: dict[str, str] | None = None,
+) -> str:
+    """Human-readable text of a template as the recipient sees it.
+
+    Substitutes ``{{placeholders}}`` in the TEXT header, body and footer
+    with *values* and joins the parts with newlines; button labels are
+    appended as a final "· "-separated line. Unlike build_send_components
+    this is display-only: a missing value leaves the placeholder verbatim
+    and nothing ever raises.
+    """
+    vals = {str(k): str(v) for k, v in (values or {}).items()}
+
+    def substitute(text: str) -> str:
+        return _PLACEHOLDER_RE.sub(
+            lambda m: vals.get(m.group(1), m.group(0)), text or ""
+        )
+
+    header_text = ""
+    body_text = ""
+    footer_text = ""
+    button_labels: list[str] = []
+    for component in components or []:
+        ctype = str((component or {}).get("type") or "").upper()
+        if ctype == "HEADER" and str(component.get("format") or "TEXT").upper() == "TEXT":
+            header_text = substitute(component.get("text") or "")
+        elif ctype == "BODY":
+            body_text = substitute(component.get("text") or "")
+        elif ctype == "FOOTER":
+            footer_text = substitute(component.get("text") or "")
+        elif ctype == "BUTTONS":
+            for button in component.get("buttons") or []:
+                label = ((button or {}).get("text") or "").strip()
+                if label:
+                    button_labels.append(label)
+
+    parts = [p for p in (header_text.strip(), body_text.strip(), footer_text.strip()) if p]
+    if button_labels:
+        parts.append(" · ".join(f"[{label}]" for label in button_labels))
+    return "\n".join(parts)
+
+
 def build_send_components(
     components: list[dict], parameter_format: str, values: dict[str, str]
 ) -> list[dict]:

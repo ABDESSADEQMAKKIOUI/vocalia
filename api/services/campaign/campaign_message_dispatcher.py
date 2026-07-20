@@ -300,6 +300,7 @@ class CampaignMessageDispatcher:
         )
         from api.services.messaging.whatsapp.template_service import (
             build_send_components,
+            render_template_display_text,
         )
 
         context_variables = queued_run.context_variables or {}
@@ -431,9 +432,17 @@ class CampaignMessageDispatcher:
 
         # The wamid is the message correlation id: stored as call_id so
         # status callbacks resolve the run via get_workflow_run_by_call_id.
+        # template_text is the rendered message as delivered — the inbox
+        # thread displays it instead of the template's technical name.
         await db_client.update_workflow_run(
             run_id=workflow_run.id,
-            gathered_context={"call_id": wamid, "provider": "whatsapp"},
+            gathered_context={
+                "call_id": wamid,
+                "provider": "whatsapp",
+                "template_text": render_template_display_text(
+                    template.components, template.parameter_format, values
+                ),
+            },
         )
 
         try:

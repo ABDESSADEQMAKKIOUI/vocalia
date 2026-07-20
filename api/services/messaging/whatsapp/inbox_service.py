@@ -125,6 +125,7 @@ def build_thread(
     run: WorkflowRunModel | None = None,
     *,
     template_name: str | None = None,
+    template_text: str | None = None,
 ) -> list[dict[str, Any]]:
     """Flatten a text session's turns into inbox messages, chronological.
 
@@ -142,11 +143,15 @@ def build_thread(
         and conversation.campaign_id
         and _template_send_recorded(run)
     ):
-        label = (
-            f"[Message modèle: {template_name}]"
-            if template_name
-            else TEMPLATE_SENT_FALLBACK_LABEL
-        )
+        # Prefer the rendered message as delivered; the technical template
+        # name is only a fallback for sends made before template_text was
+        # stored (and the generic label a last resort).
+        if template_text and template_text.strip():
+            label = template_text
+        elif template_name:
+            label = f"[Message modèle: {template_name}]"
+        else:
+            label = TEMPLATE_SENT_FALLBACK_LABEL
         # The conversation row is created immediately after the template
         # send, so created_at is the closest stored timestamp for it
         # (last_outbound_at moves forward with every later reply).
@@ -233,7 +238,12 @@ def _conversation_summary(
 
     preview = last_message_preview(session_data)
     if preview is None and conversation.campaign_id and _template_send_recorded(run):
-        preview = TEMPLATE_SENT_FALLBACK_LABEL
+        # Show the delivered template text when the dispatcher stored it;
+        # generic label only for sends predating template_text.
+        stored_text = ((getattr(run, "gathered_context", None) or {}).get(
+            "template_text"
+        ) if run is not None else None)
+        preview = truncate_preview(stored_text) or TEMPLATE_SENT_FALLBACK_LABEL
 
     address = conversation.messaging_address
     return {
@@ -302,23 +312,56 @@ async def list_conversations(
     return summaries
 
 
-async def _resolve_campaign_template_name(
-    conversation: WhatsAppConversationModel, *, organization_id: int
-) -> str | None:
-    """Name of the template that opened a campaign conversation, org-scoped."""
+async def _resolve_campaign_template_display(
+    conversation: WhatsAppConversationModel,
+    run: WorkflowRunModel | None,
+    *,
+    organization_id: int,
+) -> tuple[str | None, str | None]:
+    """(rendered_text, template_name) for the template that opened a
+    campaign conversation, org-scoped.
+
+    The rendered text is what the recipient actually received: preferably
+    the dispatcher-stored ``gathered_context.template_text``, else it is
+    re-rendered from the template mirror + the run's initial context
+    (covers sends made before template_text was stored).
+    """
     if not conversation.campaign_id:
-        return None
+        return None, None
+
+    stored_text = (
+        (getattr(run, "gathered_context", None) or {}).get("template_text")
+        if run is not None
+        else None
+    )
+
     campaign = await db_client.get_campaign_by_id(conversation.campaign_id)
     if (
         campaign is None
         or campaign.organization_id != organization_id
         or not campaign.whatsapp_template_id
     ):
-        return None
+        return stored_text, None
     template = await db_client.get_whatsapp_template(
         campaign.whatsapp_template_id, organization_id=organization_id
     )
-    return template.name if template is not None else None
+    if template is None:
+        return stored_text, None
+    if stored_text:
+        return stored_text, template.name
+
+    from api.services.messaging.whatsapp.template_service import (
+        render_template_display_text,
+    )
+
+    values = {
+        str(k).lower(): str(v)
+        for k, v in ((getattr(run, "initial_context", None) or {}) if run else {}).items()
+    }
+    rendered = render_template_display_text(
+        template.components, template.parameter_format, values
+    )
+    return (rendered or None), template.name
 
 
 async def get_conversation_detail(
@@ -335,15 +378,19 @@ async def get_conversation_detail(
     text_session, run = await _load_session_and_run(
         conversation, organization_id=organization_id
     )
-    template_name = await _resolve_campaign_template_name(
-        conversation, organization_id=organization_id
+    template_text, template_name = await _resolve_campaign_template_display(
+        conversation, run, organization_id=organization_id
     )
     return {
         "conversation": _conversation_summary(
             conversation, text_session=text_session, run=run
         ),
         "messages": build_thread(
-            text_session, conversation, run, template_name=template_name
+            text_session,
+            conversation,
+            run,
+            template_name=template_name,
+            template_text=template_text,
         ),
     }
 

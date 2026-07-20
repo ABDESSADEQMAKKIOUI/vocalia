@@ -344,3 +344,58 @@ def test_human_reply_request_requires_non_empty_bounded_text():
 def test_agent_paused_response_shape():
     payload = WhatsAppAgentPausedResponse(id=3, agent_paused=True).model_dump()
     assert payload == {"id": 3, "agent_paused": True}
+
+
+def test_build_thread_template_entry_prefers_rendered_text():
+    """The bubble shows the delivered message text, not the template name."""
+    created_at = NOW - timedelta(hours=2)
+    conversation = SimpleNamespace(
+        campaign_id=7, created_at=created_at, last_outbound_at=NOW
+    )
+    run = SimpleNamespace(
+        gathered_context={"call_id": "wamid.X", "provider": "whatsapp"}, logs=None
+    )
+    session = _session([])
+    messages = build_thread(
+        session,
+        conversation,
+        run,
+        template_name="hello_world",
+        template_text="Hello World\nWelcome to our service!",
+    )
+    assert messages[0]["origin"] == "template"
+    assert messages[0]["text"] == "Hello World\nWelcome to our service!"
+    assert "hello_world" not in messages[0]["text"]
+
+
+def test_render_template_display_text_substitutes_and_joins():
+    from api.services.messaging.whatsapp.template_service import (
+        render_template_display_text,
+    )
+
+    components = [
+        {"type": "HEADER", "format": "TEXT", "text": "Bonjour {{1}}"},
+        {"type": "BODY", "text": "Votre commande {{2}} est prête."},
+        {"type": "FOOTER", "text": "YAMED"},
+        {"type": "BUTTONS", "buttons": [
+            {"type": "QUICK_REPLY", "text": "Confirmer"},
+            {"type": "URL", "text": "Suivre", "url": "https://x.co/{{1}}"},
+        ]},
+    ]
+    text = render_template_display_text(
+        components, "positional", {"1": "Youssef", "2": "A-42"}
+    )
+    assert text == (
+        "Bonjour Youssef\nVotre commande A-42 est prête.\nYAMED\n[Confirmer] · [Suivre]"
+    )
+
+
+def test_render_template_display_text_missing_value_left_verbatim():
+    from api.services.messaging.whatsapp.template_service import (
+        render_template_display_text,
+    )
+
+    text = render_template_display_text(
+        [{"type": "BODY", "text": "Salut {{prenom}} !"}], "named", {}
+    )
+    assert text == "Salut {{prenom}} !"
