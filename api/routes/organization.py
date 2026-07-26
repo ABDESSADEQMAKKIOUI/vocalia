@@ -25,6 +25,12 @@ from api.schemas.ai_model_configuration import (
     OrganizationAIModelConfigurationV2,
 )
 from api.schemas.organization_preferences import OrganizationPreferences
+from api.schemas.subscription import (
+    EffectiveLimits,
+    OrganizationSubscriptionResponse,
+    PlanSummary,
+    UsageSnapshot,
+)
 from api.schemas.telephony_config import (
     TelephonyConfigRequest,
     TelephonyConfigurationCreateRequest,
@@ -78,6 +84,12 @@ from api.services.organization_preferences import (
     upsert_organization_preferences,
 )
 from api.services.posthog_client import capture_event
+from api.services.subscription.service import (
+    get_effective_limits,
+    get_features,
+    get_subscription,
+    get_usage_snapshot,
+)
 from api.services.telephony import registry as telephony_registry
 from api.services.telephony.factory import get_telephony_provider_by_id
 from api.services.worker_sync.manager import get_worker_sync_manager
@@ -1309,4 +1321,42 @@ async def get_campaign_defaults(user: UserModel = Depends(get_user)):
         from_numbers_count=from_numbers_count,
         default_retry_config=RetryConfigResponse(**DEFAULT_CAMPAIGN_RETRY_CONFIG),
         last_campaign_settings=last_campaign_settings,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Subscription
+# ---------------------------------------------------------------------------
+
+
+@router.get("/subscription", response_model=OrganizationSubscriptionResponse)
+async def get_organization_subscription(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    """Return the org's plan, effective quota limits and current-period usage.
+
+    Organizations that predate the subscription layer have no subscription row:
+    the plan and status come back null and the limits are unlimited, which is
+    what the enforcement grants them too.
+    """
+    organization_id = user.selected_organization_id
+    subscription = await get_subscription(organization_id)
+    plan = subscription.plan if subscription else None
+    limits = get_effective_limits(subscription, plan)
+    usage = await get_usage_snapshot(organization_id)
+
+    return OrganizationSubscriptionResponse(
+        plan=PlanSummary.model_validate(plan) if plan else None,
+        status=subscription.status if subscription else None,
+        current_period_start=(
+            subscription.current_period_start if subscription else None
+        ),
+        current_period_end=subscription.current_period_end if subscription else None,
+        trial_end_at=subscription.trial_end_at if subscription else None,
+        cancel_at_period_end=(
+            subscription.cancel_at_period_end if subscription else False
+        ),
+        limits=EffectiveLimits.model_validate(limits),
+        usage=UsageSnapshot.model_validate(usage),
+        features=get_features(plan),
     )

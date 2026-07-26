@@ -21,6 +21,7 @@ from api.services.campaign.source_sync_factory import get_sync_service
 from api.services.quota_service import authorize_workflow_run_start
 from api.services.reports import generate_campaign_report_csv
 from api.services.storage import storage_fs
+from api.services.subscription.enforcement import check_campaign_allowed
 
 router = APIRouter(prefix="/campaign")
 
@@ -357,6 +358,11 @@ async def create_campaign(
     user: UserModel = Depends(get_user),
 ) -> CampaignResponse:
     """Create a new campaign"""
+    # Plan gate before any source/template validation work.
+    subscription_check = await check_campaign_allowed(user.selected_organization_id)
+    if not subscription_check.allowed:
+        raise HTTPException(status_code=402, detail=subscription_check.error_message)
+
     # Verify workflow exists and belongs to organization
     workflow = await db_client.get_workflow(
         request.workflow_id, organization_id=user.selected_organization_id

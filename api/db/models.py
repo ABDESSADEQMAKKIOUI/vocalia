@@ -20,6 +20,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base, relationship
 
 from api.constants import DEFAULT_CAMPAIGN_RETRY_CONFIG
@@ -151,6 +152,10 @@ class OrganizationModel(Base):
 
     price_per_second_usd = Column(Float, nullable=True)
 
+    # Tenant profile, set by the platform admin when provisioning an org.
+    name = Column(String(255), nullable=True)
+    contact_email = Column(String(255), nullable=True)
+
     # Relationships
     users = relationship(
         "UserModel",
@@ -165,6 +170,11 @@ class OrganizationModel(Base):
         "OrganizationConfigurationModel", back_populates="organization"
     )
     api_keys = relationship("APIKeyModel", back_populates="organization")
+    subscription = relationship(
+        "OrganizationSubscriptionModel",
+        back_populates="organization",
+        uselist=False,
+    )
 
 
 class APIKeyModel(Base):
@@ -1753,4 +1763,152 @@ class MessagingSuppressionModel(Base):
             name="uq_messaging_suppressions_org_address_scope",
         ),
         Index("ix_messaging_suppressions_org_address", "organization_id", "address"),
+    )
+
+
+class SubscriptionPlanModel(Base):
+    """A commercial plan a tenant organization can be subscribed to.
+
+    Limit columns are the quota ceilings enforced by
+    ``api/services/subscription/enforcement.py``; NULL means unlimited.
+    ``features`` is a flag map keyed by voice, whatsapp, campaigns,
+    telephony, api_access, knowledge_base and integrations.
+    """
+
+    __tablename__ = "subscription_plans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(64), nullable=False, unique=True, index=True)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, nullable=True)
+
+    price_amount = Column(Float, nullable=False, default=0, server_default=text("0"))
+    currency = Column(
+        String(3), nullable=False, default="EUR", server_default=text("'EUR'")
+    )
+    billing_interval = Column(
+        String(16),
+        nullable=False,
+        default="monthly",
+        server_default=text("'monthly'"),
+    )
+    trial_days = Column(Integer, nullable=False, default=0, server_default=text("0"))
+
+    # NULL on any limit means unlimited.
+    max_voice_minutes = Column(Integer, nullable=True)
+    max_whatsapp_messages = Column(Integer, nullable=True)
+    max_workflows = Column(Integer, nullable=True)
+    max_campaigns_per_month = Column(Integer, nullable=True)
+    max_users = Column(Integer, nullable=True)
+    max_concurrent_calls = Column(Integer, nullable=True)
+
+    features = Column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    is_active = Column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    is_public = Column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    sort_order = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    subscriptions = relationship("OrganizationSubscriptionModel", back_populates="plan")
+
+
+class OrganizationSubscriptionModel(Base):
+    """The single active subscription of an organization.
+
+    status: trialing | active | past_due | suspended | cancelled.
+    ``limit_overrides`` holds per-tenant exceptions that win over the plan
+    limits; it uses the same keys as the plan max_* columns.
+    """
+
+    __tablename__ = "organization_subscriptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(
+        Integer,
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    plan_id = Column(Integer, ForeignKey("subscription_plans.id"), nullable=False)
+    status = Column(
+        String(24),
+        nullable=False,
+        default="trialing",
+        server_default=text("'trialing'"),
+    )
+    current_period_start = Column(DateTime(timezone=True), nullable=False)
+    current_period_end = Column(DateTime(timezone=True), nullable=False)
+    trial_end_at = Column(DateTime(timezone=True), nullable=True)
+    cancel_at_period_end = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    limit_overrides = Column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    external_reference = Column(String(128), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_by_user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    organization = relationship("OrganizationModel", back_populates="subscription")
+    plan = relationship("SubscriptionPlanModel", back_populates="subscriptions")
+
+    __table_args__ = (
+        Index(
+            "uq_organization_subscriptions_org",
+            "organization_id",
+            unique=True,
+        ),
+    )
+
+
+class SubscriptionEventModel(Base):
+    """Append-only audit trail of everything that happened to a subscription.
+
+    event_type: provisioned | plan_changed | suspended | reactivated |
+    cancelled | renewed | limits_updated | quota_blocked.
+    """
+
+    __tablename__ = "subscription_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(
+        Integer,
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    subscription_id = Column(
+        Integer,
+        ForeignKey("organization_subscriptions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    event_type = Column(String(32), nullable=False)
+    actor_user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    payload = Column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    __table_args__ = (
+        Index("ix_subscription_events_organization_id", "organization_id"),
+        Index("ix_subscription_events_created_at", "created_at"),
     )

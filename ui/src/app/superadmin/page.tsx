@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, List, Loader2 } from 'lucide-react';
+import { ArrowRight, Building2, List, Loader2 } from 'lucide-react';
 import Link from "next/link";
 import { useState } from "react";
 
@@ -172,6 +172,24 @@ export default function SuperadminPage() {
                                         )}
                                     </Button>
                                 </form>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="md:col-span-2">
+                            <CardHeader>
+                                <CardTitle>Console plateforme</CardTitle>
+                                <CardDescription>
+                                    Gérez les clients, leurs abonnements, leurs plans et leurs quotas
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <Link href="/platform-admin">
+                                    <Button className="w-full md:w-auto">
+                                        <Building2 className="mr-2 h-4 w-4" />
+                                        Ouvrir la console plateforme
+                                        <ArrowRight className="ml-2 h-4 w-4" />
+                                    </Button>
+                                </Link>
                             </CardContent>
                         </Card>
 

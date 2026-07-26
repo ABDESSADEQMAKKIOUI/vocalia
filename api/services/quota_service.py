@@ -23,6 +23,7 @@ from api.services.managed_model_services import (
     uses_managed_model_services_v2,
 )
 from api.services.mps_service_key_client import mps_service_key_client
+from api.services.subscription.enforcement import check_run_allowed
 
 MINIMUM_DOGRAH_CREDITS_FOR_CALL = 0.10
 
@@ -479,6 +480,7 @@ async def authorize_workflow_run_start(
         # draft on every save, which can carry a different service key than
         # the definition the run will actually use.
         workflow_configurations = workflow.workflow_configurations
+        run_mode: str | None = None
         if workflow_run_id is not None:
             # As with the owner lookup, a DB read failure falls through to the
             # outer fail-closed handler; only a genuinely missing/mismatched run
@@ -498,10 +500,36 @@ async def authorize_workflow_run_start(
                     error_code="workflow_run_not_found",
                     error_message="Workflow run not found",
                 )
+            # Defensive: an unreadable mode must never break authorization —
+            # None falls back to the voice gate, which is the stricter branch.
+            run_mode = getattr(workflow_run, "mode", None)
             if workflow_run.definition is not None:
                 workflow_configurations = (
                     workflow_run.definition.workflow_configurations
                 )
+
+        # Subscription gate before any credit logic: an org whose plan is
+        # suspended, expired, missing the channel feature or out of quota must
+        # not start a run. Placed after the workflow and actor checks so a
+        # denial can never disclose the existence of another org's workflow,
+        # and so quota_blocked events only cover legitimate requests. The
+        # check fails open internally: a billing-layer incident never blocks
+        # production traffic.
+        subscription_check = await check_run_allowed(organization_id, run_mode)
+        if not subscription_check.allowed:
+            logger.warning(
+                "Workflow start authorization denied by subscription for org {} "
+                "(workflow {}, mode {}): {}",
+                organization_id,
+                workflow_id,
+                run_mode,
+                subscription_check.error_code,
+            )
+            return QuotaCheckResult(
+                has_quota=False,
+                error_code=subscription_check.error_code,
+                error_message=subscription_check.error_message,
+            )
 
         user_config = await get_effective_ai_model_configuration_for_workflow(
             organization_id=organization_id,

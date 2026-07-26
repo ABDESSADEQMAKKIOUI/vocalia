@@ -1,0 +1,57 @@
+"""SaaS subscription layer: plan catalogue, tenant subscriptions, quota enforcement."""
+
+from .enforcement import (
+    SubscriptionCheck,
+    check_campaign_allowed,
+    check_feature_allowed,
+    check_run_allowed,
+    check_whatsapp_message_allowed,
+)
+from .plans import DEFAULT_PLANS, FEATURE_KEYS, ensure_default_plans
+from .service import (
+    LIMIT_KEYS,
+    ProvisionedOrganization,
+    assign_plan,
+    cancel,
+    get_effective_limits,
+    get_features,
+    get_period_bounds,
+    get_platform_metrics,
+    get_subscription,
+    get_usage_snapshot,
+    is_feature_enabled,
+    provision_organization,
+    reactivate,
+    record_event,
+    renew_period,
+    suspend,
+    update_limits,
+)
+
+__all__ = [
+    "DEFAULT_PLANS",
+    "FEATURE_KEYS",
+    "LIMIT_KEYS",
+    "ProvisionedOrganization",
+    "SubscriptionCheck",
+    "assign_plan",
+    "cancel",
+    "check_campaign_allowed",
+    "check_feature_allowed",
+    "check_run_allowed",
+    "check_whatsapp_message_allowed",
+    "ensure_default_plans",
+    "get_effective_limits",
+    "get_features",
+    "get_period_bounds",
+    "get_platform_metrics",
+    "get_subscription",
+    "get_usage_snapshot",
+    "is_feature_enabled",
+    "provision_organization",
+    "reactivate",
+    "record_event",
+    "renew_period",
+    "suspend",
+    "update_limits",
+]

@@ -437,6 +437,17 @@ async def send_human_reply(
             "Le numéro d'entreprise de cette conversation n'est plus actif."
         )
 
+    from api.services.subscription.enforcement import check_whatsapp_message_allowed
+
+    subscription_check = await check_whatsapp_message_allowed(organization_id)
+    if not subscription_check.allowed:
+        logger.warning(
+            f"Human WhatsApp reply blocked by subscription for conversation "
+            f"{conversation.id} (org {organization_id}): "
+            f"{subscription_check.error_code}"
+        )
+        raise ValueError(subscription_check.error_message)
+
     from api.services.messaging.whatsapp.client import (
         WhatsAppApiError,
         client_for_configuration,

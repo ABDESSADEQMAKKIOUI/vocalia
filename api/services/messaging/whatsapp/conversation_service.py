@@ -416,9 +416,29 @@ async def _process_inbound_message(
     session_data = normalize_text_chat_session_data(text_session.session_data)
     assistant_text = latest_assistant_text(session_data)
 
-    if assistant_text and service_window_open(
+    reply_allowed = bool(assistant_text) and service_window_open(
         window_expires_at, now=datetime.now(UTC)
-    ):
+    )
+    if reply_allowed:
+        from api.services.subscription.enforcement import (
+            check_whatsapp_message_allowed,
+        )
+
+        subscription_check = await check_whatsapp_message_allowed(
+            address.organization_id
+        )
+        if not subscription_check.allowed:
+            # A billing block must never break a live conversation: the user
+            # and assistant turns are already persisted, only the outbound
+            # reply is withheld.
+            logger.warning(
+                f"Withholding WhatsApp reply for run {run_id} "
+                f"(org {address.organization_id}): {subscription_check.error_code} "
+                f"- {subscription_check.error_message}"
+            )
+            reply_allowed = False
+
+    if reply_allowed:
         try:
             outbound_wamid = await client.send_text(to=wa_id, body=assistant_text)
             await db_client.touch_whatsapp_conversation(

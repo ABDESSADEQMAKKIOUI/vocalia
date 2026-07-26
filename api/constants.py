@@ -57,6 +57,12 @@ DOGRAH_MPS_SECRET_KEY = os.getenv("DOGRAH_MPS_SECRET_KEY", None)
 MPS_API_URL = os.getenv("MPS_API_URL", "https://services.dograh.com")
 DOGRAH_DEVOPS_SECRET = os.getenv("DOGRAH_DEVOPS_SECRET") or None
 
+# Gates the SaaS subscription quota enforcement. When false, every check in
+# api/services/subscription/enforcement.py short-circuits to allow.
+SUBSCRIPTION_ENFORCEMENT_ENABLED = (
+    os.getenv("SUBSCRIPTION_ENFORCEMENT_ENABLED", "true").lower() == "true"
+)
+
 # Storage Configuration
 ENABLE_AWS_S3 = os.getenv("ENABLE_AWS_S3", "false").lower() == "true"
 

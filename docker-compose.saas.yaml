@@ -1,0 +1,276 @@
+# Dograh SaaS stack — runs THIS copy of the repo side by side with an existing
+# Dograh install started from docker-compose.yaml.
+#
+# Everything that could collide is namespaced: compose project name, container
+# names, volume names, the bridge network, and every published port. No volume
+# and no port is shared with the other stack, so the two databases stay
+# independent.
+#
+#   Host        Service       Container port
+#   3020        ui            3010   (the UI image listens on 3010, and host
+#                                     3010 is what docker-compose.yaml uses)
+#   8010        api           8000
+#   5442        postgres      5432
+#   6389        redis         6379
+#   9010/9011   minio         9000/9001  (bound to 127.0.0.1)
+#   2010        cloudflared   2000   (profile "tunnel" only)
+#
+# Usage, from the repo root:
+#   cp .env.saas.example .env.saas          # then fill it in
+#   docker compose -f docker-compose.saas.yaml --env-file .env.saas up -d --build
+#
+# The api image entrypoint runs `alembic upgrade head` at startup, so the
+# subscription tables are created on first boot. Create the platform admin with
+# scripts/bootstrap_platform_admin.py (see SAAS_PLATFORM.md).
+#
+# The remote-only services of docker-compose.yaml (nginx, coturn, dograh-init)
+# are intentionally absent: they bind :80/:443/:3478 and cannot be published
+# twice on one host. Use docker-compose.yaml for a public deployment.
+
+name: dograh-saas
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: dograh-saas-postgres
+    environment:
+      POSTGRES_USER: postgres
+      # Sourced from --env-file. Defaults to "postgres"
+      # NOTE: changing this on an existing install does NOT
+      # re-key the database — the password is baked into the volume on first init.
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
+      POSTGRES_DB: postgres
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      - "5442:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7
+    container_name: dograh-saas-redis
+    ports:
+      - "6389:6379"
+    command: >
+      --requirepass ${REDIS_PASSWORD:-redissecret}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redissecret}", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+    networks:
+      - app-network
+
+  minio:
+    image: minio/minio
+    container_name: dograh-saas-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
+    ports:
+      - "127.0.0.1:9010:9000" # Bind to localhost explicitly
+      - "127.0.0.1:9011:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  api:
+    # Built from this checkout, not pulled: the published image predates the
+    # subscription layer. Point SAAS_API_IMAGE at an existing local tag to reuse
+    # an image you already built instead of rebuilding.
+    image: ${SAAS_API_IMAGE:-dograh-api:saas}
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: dograh-saas-api
+    volumes:
+      # The image only ships the shell entrypoints from scripts/, so mount the
+      # bootstrap script in to run it with `docker compose exec api`.
+      - ./scripts/bootstrap_platform_admin.py:/app/scripts/bootstrap_platform_admin.py:ro
+    environment:
+      # Core application config
+      ENVIRONMENT: "${ENVIRONMENT:-local}"
+      LOG_LEVEL: "INFO"
+
+      # Public signup. Keep it "false" on a SaaS install: tenants are created by
+      # the platform admin, not by whoever finds the login page.
+      ENABLE_SIGNUP: "${ENABLE_SIGNUP:-false}"
+
+      # SaaS subscription quota enforcement. When false, every check in
+      # api/services/subscription/enforcement.py short-circuits to allow.
+      SUBSCRIPTION_ENFORCEMENT_ENABLED: "${SUBSCRIPTION_ENFORCEMENT_ENABLED:-true}"
+
+      # Public origin of this deployment. Empty for a local parallel run; the
+      # endpoints below are then what the browser uses.
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
+      PUBLIC_HOST: "${PUBLIC_HOST:-}"
+
+      # URL the browser reaches this api at — the shifted host port, not 8000.
+      # The UI picks it up from /health, so it must be set for a parallel run.
+      BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8010}"
+
+      # Database configuration (containerized postgres of THIS stack)
+      DATABASE_URL: "postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres"
+
+      # Redis configuration (containerized redis of THIS stack)
+      REDIS_URL: "redis://:${REDIS_PASSWORD:-redissecret}@redis:6379"
+
+      # Storage — bundled MinIO. Set ENABLE_AWS_S3=true and the S3_* variables
+      # in the env file to use an external S3-compatible store instead.
+      ENABLE_AWS_S3: "${ENABLE_AWS_S3:-false}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+      S3_BUCKET: "${S3_BUCKET:-}"
+      S3_REGION: "${S3_REGION:-us-east-1}"
+      S3_ENDPOINT_URL: "${S3_ENDPOINT_URL:-}"
+
+      # MinIO
+      MINIO_ENDPOINT: "minio:9000"
+      # Full URL (with scheme) browsers use to reach MinIO — the shifted host
+      # port, not 9000.
+      MINIO_PUBLIC_ENDPOINT: "${MINIO_PUBLIC_ENDPOINT:-http://localhost:9010}"
+      MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:-minioadmin}"
+      MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+      MINIO_BUCKET: "voice-audio"
+      MINIO_SECURE: "false"
+
+      # Number of uvicorn worker processes (each is its own process bound to a
+      # distinct port starting at 8000). Only 8000 is published here, so keep
+      # this at 1 unless a proxy in front of the stack balances the extra ports.
+      FASTAPI_WORKERS: "${FASTAPI_WORKERS:-1}"
+
+      # Trust X-Forwarded-* from any peer so uvicorn honors the proxy's
+      # X-Forwarded-Proto; without it, inbound webhook signature checks fail
+      # behind the Cloudflare tunnel (providers sign the public https URL).
+      FORWARDED_ALLOW_IPS: "*"
+
+      OSS_JWT_SECRET: "${OSS_JWT_SECRET:?OSS_JWT_SECRET must be set to a strong secret}"
+
+      # WhatsApp Cloud API (Meta) — Embedded Signup, webhook verification and
+      # X-Hub-Signature-256 checking. Leave empty to disable the channel.
+      WHATSAPP_APP_ID: "${WHATSAPP_APP_ID:-}"
+      WHATSAPP_APP_SECRET: "${WHATSAPP_APP_SECRET:-}"
+      WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID: "${WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID:-}"
+      WHATSAPP_VERIFY_TOKEN: "${WHATSAPP_VERIFY_TOKEN:-}"
+      WHATSAPP_GRAPH_VERSION: "${WHATSAPP_GRAPH_VERSION:-v23.0}"
+
+      # Telemetry
+      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-false}"
+      POSTHOG_API_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
+      POSTHOG_HOST: "https://us.i.posthog.com"
+
+    ports:
+      - "8010:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/api/v1/health'').read()"',
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - app-network
+
+  ui:
+    # Built from this checkout — the platform admin dashboard lives in ui/src.
+    image: ${SAAS_UI_IMAGE:-dograh-ui:saas}
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+    container_name: dograh-saas-ui
+    environment:
+      # Bind the Next.js standalone server to all interfaces
+      HOSTNAME: "0.0.0.0"
+
+      # Server-side URL (SSR, internal Docker network)
+      BACKEND_URL: "${BACKEND_URL:-http://api:8000}"
+      NODE_ENV: "oss"
+
+      # Flag to enable/ disable posthog
+      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-false}"
+
+      # Posthog
+      POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
+      POSTHOG_HOST: "https://us.posthog.com"
+    ports:
+      - "3020:3010"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://127.0.0.1:3010 || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - app-network
+
+  # Cloudflare tunnel for inbound webhook / WSS reachability (telephony and
+  # WhatsApp callbacks) when the host has no usable public IP. Gated behind the
+  # "tunnel" profile — add `--profile tunnel` to the compose command to start it.
+  # With CLOUDFLARE_TUNNEL_TOKEN set it runs a named tunnel (point its ingress at
+  # http://api:8000 and set BACKEND_API_ENDPOINT to that hostname); without a
+  # token it runs a quick tunnel whose ephemeral URL the API discovers from the
+  # metrics endpoint (api/utils/tunnel.py).
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: dograh-saas-cloudflared
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    environment:
+      TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN:-}"
+    command: ${CLOUDFLARED_COMMAND:-tunnel --url http://api:8000 --metrics 0.0.0.0:2000}
+    ports:
+      - "2010:2000" # metrics endpoint (quick-tunnel URL discovery)
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+    name: dograh-saas-postgres-data
+  redis_data:
+    name: dograh-saas-redis-data
+  minio-data:
+    name: dograh-saas-minio-data
+    driver: local
+
+networks:
+  app-network:
+    name: dograh-saas-network
+    driver: bridge

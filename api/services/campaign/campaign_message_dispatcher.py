@@ -29,6 +29,7 @@ from api.services.campaign.campaign_event_publisher import (
 from api.services.campaign.circuit_breaker import circuit_breaker
 from api.services.campaign.rate_limiter import rate_limiter
 from api.services.quota_service import authorize_workflow_run_start
+from api.services.subscription.enforcement import check_whatsapp_message_allowed
 
 # NOTE: api.services.messaging.whatsapp.* is imported lazily inside methods —
 # mirroring how campaign_call_dispatcher lazy-imports telephony — so this
@@ -383,6 +384,18 @@ class CampaignMessageDispatcher:
             )
             raise ValueError(error_message)
 
+        subscription_check = await check_whatsapp_message_allowed(
+            campaign.organization_id
+        )
+        if not subscription_check.allowed:
+            await self._halt_on_subscription_block(
+                subscription_check,
+                queued_run=queued_run,
+                campaign=campaign,
+                workflow_run=workflow_run,
+            )
+            return None
+
         values = lowercase_template_values(context_variables)
         try:
             components = build_send_components(
@@ -548,6 +561,48 @@ class CampaignMessageDispatcher:
                 reason=f"whatsapp_{getattr(error, 'code', 'api_error')}",
             )
         # ACTION_FAIL: nothing beyond marking the run and queued run failed.
+
+    async def _halt_on_subscription_block(
+        self,
+        check,
+        *,
+        queued_run: QueuedRunModel,
+        campaign,
+        workflow_run: WorkflowRunModel,
+    ) -> None:
+        """Terminal handling for a subscription/quota block on a send.
+
+        A subscription block is systemic — every recipient of the campaign
+        hits the same wall — so this mirrors the ACTION_HALT branch of
+        ``_handle_send_api_error``: fail the run and the queued run, then
+        feed the circuit breaker so the campaign pauses instead of burning
+        through the remaining list.
+        """
+        logger.warning(
+            f"WhatsApp send blocked by subscription for workflow run "
+            f"{workflow_run.id} (campaign {campaign.id}, queued run "
+            f"{queued_run.id}): {check.error_code} - {check.error_message}"
+        )
+
+        await self._fail_workflow_run(
+            workflow_run,
+            error=check.error_message,
+            extra_log={"error_code": check.error_code},
+        )
+
+        await db_client.update_queued_run(
+            queued_run_id=queued_run.id,
+            state="failed",
+            retry_reason=check.error_code,
+            processed_at=datetime.now(UTC),
+        )
+
+        await circuit_breaker.record_and_evaluate(
+            campaign.id,
+            is_failure=True,
+            workflow_run_id=workflow_run.id,
+            reason=check.error_code,
+        )
 
     async def _fail_workflow_run(
         self,
