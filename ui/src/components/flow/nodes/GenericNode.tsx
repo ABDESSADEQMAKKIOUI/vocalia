@@ -56,7 +56,7 @@ const HANDLES_BY_SPEC: Record<string, { source: boolean; target: boolean }> = {
     qa: { source: false, target: false },
 };
 
-const DOC_URL_BY_SPEC: Record<string, string | undefined> = {
+const DOC_URL_BY_SPEC: Record<string, string | null | undefined> = {
     startCall: NODE_DOCUMENTATION_URLS.startCall,
     agentNode: NODE_DOCUMENTATION_URLS.agent,
     endCall: NODE_DOCUMENTATION_URLS.endCall,
@@ -597,7 +597,9 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
             : { source: true, target: true });
     const badge = getBadgeForSpec(spec, styleVariant);
     const Icon = spec ? resolveIcon(spec.icon) : Circle;
-    const docUrl = spec?.docs_url ?? DOC_URL_BY_SPEC[type];
+    // `?? undefined` collapses "no documentation site configured" (null) into the
+    // optional prop NodeEditDialog expects, so the link is simply not rendered.
+    const docUrl = spec?.docs_url ?? DOC_URL_BY_SPEC[type] ?? undefined;
     const contentLabel = spec?.properties.some((p) => p.name === "prompt")
         ? "Prompt"
         : "Details";

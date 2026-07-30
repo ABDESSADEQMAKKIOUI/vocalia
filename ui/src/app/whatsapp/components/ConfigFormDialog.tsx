@@ -171,7 +171,7 @@ export function ConfigFormDialog({
                     <DialogDescription>
                         {existing
                             ? 'Mettez à jour le nom, le statut ou les identifiants Meta.'
-                            : 'Connectez un compte WhatsApp Business (Meta) à Dograh.'}
+                            : 'Connectez un compte WhatsApp Business (Meta) à Volira.'}
                     </DialogDescription>
                 </DialogHeader>
 

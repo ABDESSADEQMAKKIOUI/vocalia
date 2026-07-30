@@ -7,9 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/lib/auth";
+import { docsUrl } from "@/lib/support";
 
 import RecordingsList from "./RecordingsList";
 import { RecordingsUploadDialog } from "./RecordingsUploadDialog";
+
+const RECORDINGS_DOC_URL = docsUrl("voice-agent/pre-recorded-audio");
 
 export default function RecordingsPage() {
     const { user, redirectToLogin, loading } = useAuth();
@@ -40,10 +43,15 @@ export default function RecordingsPage() {
                 <p className="text-muted-foreground">
                     Manage audio recordings for your organization. Use{" "}
                     <code className="rounded bg-muted px-1 text-xs">@</code> in prompt fields to insert them,
-                    or as transition messages in tool calls.{" "}
-                    <a href="https://docs.dograh.com/voice-agent/pre-recorded-audio" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
-                        Learn more <ExternalLink className="h-3 w-3" />
-                    </a>
+                    or as transition messages in tool calls.
+                    {RECORDINGS_DOC_URL && (
+                        <>
+                            {" "}
+                            <a href={RECORDINGS_DOC_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
+                                Learn more <ExternalLink className="h-3 w-3" />
+                            </a>
+                        </>
+                    )}
                 </p>
             </div>
 

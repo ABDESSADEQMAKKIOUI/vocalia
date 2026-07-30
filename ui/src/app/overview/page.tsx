@@ -2,10 +2,10 @@
 
 import Link from 'next/link';
 
-import { GitHubStarBadge } from '@/components/layout/GitHubStarBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/lib/auth';
+import { DOCS_URL, SUPPORT_EMAIL, SUPPORT_MAILTO } from '@/lib/support';
 
 export default function OverviewPage() {
     const { user, provider } = useAuth();
@@ -19,28 +19,23 @@ export default function OverviewPage() {
                     <CardHeader>
                         <CardTitle className="text-3xl">
                             {isOSSMode ? (
-                                "Welcome to Dograh"
+                                "Welcome to Volira"
                             ) : (
                                 `Welcome${user?.displayName ? `, ${user.displayName.split(' ')[0]}` : ''}!`
                             )}
                         </CardTitle>
                         <CardDescription className="text-lg mt-2">
-                            {isOSSMode ? (
-                                <>
-                                    Open source alternative to Vapi. Help us support the project by giving us a star on GitHub.
-                                </>
-                            ) : (
-                                "Get started with building voice AI workflows"
-                            )}
+                            {/* Was an open-source pitch asking for a GitHub star.
+                                It described the upstream project, not this
+                                product, and the badge it referred to is gone. */}
+                            Build and run AI agents for voice, WhatsApp and the web.
                         </CardDescription>
                     </CardHeader>
-                    <CardContent>
-                        {isOSSMode && (
-                            <div className="mb-6">
-                                <GitHubStarBadge label="Star us on GitHub" showCount source="overview_page" />
-                            </div>
-                        )}
-                    </CardContent>
+                    {/* The upstream "Star us on GitHub" badge pointed at the
+                        project this platform is built on. Removed: a customer of
+                        this deployment has no business being sent upstream. */}
+                    <CardContent />
+
                 </Card>
 
                 {/* Quick Actions */}
@@ -83,29 +78,33 @@ export default function OverviewPage() {
                     <CardHeader>
                         <CardTitle>Resources</CardTitle>
                         <CardDescription>
-                            Get help and learn more about Dograh
+                            Get help and learn more about Volira
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className="flex flex-wrap gap-4">
-                            <Button asChild variant="outline">
-                                <a
-                                    href="https://docs.dograh.com"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                >
-                                    Documentation
-                                </a>
-                            </Button>
-                            <Button asChild variant="outline">
-                                <a
-                                    href="https://github.com/dograh-hq/dograh/issues"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                >
-                                    Report an Issue
-                                </a>
-                            </Button>
+                            {/* No documentation site is configured yet, so point people
+                                at a human instead of at a dead link. */}
+                            {DOCS_URL ? (
+                                <Button asChild variant="outline">
+                                    <a
+                                        href={DOCS_URL}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
+                                        Documentation
+                                    </a>
+                                </Button>
+                            ) : (
+                                <Button asChild variant="outline">
+                                    <a href={SUPPORT_MAILTO}>
+                                        Email support ({SUPPORT_EMAIL})
+                                    </a>
+                                </Button>
+                            )}
+                            {/* "Report an Issue" used to open the upstream issue
+                                tracker. A customer's bug report belongs to this
+                                platform's own support, not to a public repo. */}
                         </div>
                     </CardContent>
                 </Card>

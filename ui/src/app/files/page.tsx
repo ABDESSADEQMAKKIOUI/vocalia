@@ -13,6 +13,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { KNOWLEDGE_BASE_DOC_URL } from "@/constants/documentation";
 import { useAuth } from "@/lib/auth";
 
 import DocumentList from "./DocumentList";
@@ -51,10 +52,15 @@ export default function FilesPage() {
             <div className="mb-8">
                 <h1 className="text-3xl font-bold mb-2">Knowledge Base Files</h1>
                 <p className="text-muted-foreground">
-                    Upload and manage documents for your voice agents to reference.{" "}
-                    <a href="https://docs.dograh.com/voice-agent/knowledge-base" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
-                        Learn more <ExternalLink className="h-3 w-3" />
-                    </a>
+                    Upload and manage documents for your voice agents to reference.
+                    {KNOWLEDGE_BASE_DOC_URL && (
+                        <>
+                            {" "}
+                            <a href={KNOWLEDGE_BASE_DOC_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
+                                Learn more <ExternalLink className="h-3 w-3" />
+                            </a>
+                        </>
+                    )}
                 </p>
             </div>
 

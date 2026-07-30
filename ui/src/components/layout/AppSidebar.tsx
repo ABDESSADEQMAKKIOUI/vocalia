@@ -60,7 +60,12 @@ import { useTelephonyConfigWarnings } from "@/context/TelephonyConfigWarningsCon
 import { useLatestReleaseVersion } from "@/hooks/useLatestReleaseVersion";
 import type { LocalUser } from "@/lib/auth";
 import { useAuth } from "@/lib/auth";
+import { docsUrl } from "@/lib/support";
 import { cn } from "@/lib/utils";
+
+const UPDATE_GUIDE_URL = docsUrl("deployment/update");
+const UPDATE_BADGE_CLASS =
+  "inline-flex items-center gap-1 rounded-md border bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium leading-none text-amber-900 dark:bg-amber-950 dark:text-amber-200";
 
 type SidebarNavItem = {
   title: string;
@@ -345,19 +350,34 @@ export function AppSidebar() {
             </Link>
             {isBehind && latestRelease && (
               <Tooltip>
+                {/* Without a documentation site there is no update guide to
+                    link to, so the badge stays as a plain marker. */}
                 <TooltipTrigger asChild>
-                  <a
-                    href="https://docs.dograh.com/deployment/update"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded-md border bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium leading-none text-amber-900 transition-opacity hover:opacity-80 dark:bg-amber-950 dark:text-amber-200"
-                  >
-                    <ArrowUpCircle className="h-3 w-3" />
-                    Update
-                  </a>
+                  {UPDATE_GUIDE_URL ? (
+                    <a
+                      href={UPDATE_GUIDE_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={cn(
+                        UPDATE_BADGE_CLASS,
+                        "transition-opacity hover:opacity-80",
+                      )}
+                    >
+                      <ArrowUpCircle className="h-3 w-3" />
+                      Update
+                    </a>
+                  ) : (
+                    <span className={UPDATE_BADGE_CLASS}>
+                      <ArrowUpCircle className="h-3 w-3" />
+                      Update
+                    </span>
+                  )}
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  <p>Latest: {latestRelease} - click to see the update guide</p>
+                  <p>
+                    Latest: {latestRelease}
+                    {UPDATE_GUIDE_URL ? " - click to see the update guide" : ""}
+                  </p>
                 </TooltipContent>
               </Tooltip>
             )}

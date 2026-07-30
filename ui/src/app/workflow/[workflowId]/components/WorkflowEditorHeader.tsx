@@ -12,7 +12,6 @@ import {
 } from "@/client/sdk.gen";
 import { WorkflowError } from "@/client/types.gen";
 import { FlowEdge, FlowNode } from "@/components/flow/types";
-import { GitHubStarBadge } from "@/components/layout/GitHubStarBadge";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -495,10 +494,9 @@ export const WorkflowEditorHeader = ({
                     </DropdownMenuContent>
                 </DropdownMenu>
 
-                {/* GitHub star badge - desktop only */}
-                <div className="hidden md:block">
-                    <GitHubStarBadge className="border-[#3a3a3a] bg-[#2a2a2a] text-white [&_span]:bg-transparent" source="workflow_editor_header" />
-                </div>
+                {/* The upstream GitHub star badge lived here. Removed with the
+                    other upstream call-to-actions: this editor is shown to the
+                    platform's own customers. */}
             </div>
         </div>
     );

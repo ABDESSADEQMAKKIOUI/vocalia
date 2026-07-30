@@ -58,9 +58,11 @@ import {
 import { useAppConfig } from "@/context/AppConfigContext";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
+import { docsUrl } from "@/lib/support";
 import { resolveWebhookBaseUrl } from "@/lib/webhookUrl";
 
 const INBOUND_WEBHOOK_PATH = "/api/v1/telephony/inbound/run";
+const INBOUND_DOC_URL = docsUrl("integrations/telephony/inbound");
 
 export default function TelephonyConfigurationDetailPage() {
   const router = useRouter();
@@ -285,15 +287,20 @@ export default function TelephonyConfigurationDetailPage() {
             <CardTitle>Phone numbers</CardTitle>
             <CardDescription>
               Numbers used as caller ID for outbound and accepted for inbound matching.
-              SIP URIs and extensions are supported alongside PSTN numbers.{" "}
-              <a
-                href="https://docs.dograh.com/integrations/telephony/inbound"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-0.5 underline"
-              >
-                Inbound docs <ExternalLink className="h-3 w-3" />
-              </a>
+              SIP URIs and extensions are supported alongside PSTN numbers.
+              {INBOUND_DOC_URL && (
+                <>
+                  {" "}
+                  <a
+                    href={INBOUND_DOC_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-0.5 underline"
+                  >
+                    Inbound docs <ExternalLink className="h-3 w-3" />
+                  </a>
+                </>
+              )}
             </CardDescription>
           </div>
           <Button

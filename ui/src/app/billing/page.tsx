@@ -5,7 +5,6 @@ import {
     ChevronRight,
     CircleDollarSign,
     CreditCard,
-    ExternalLink,
     Info,
     RefreshCw,
 } from "lucide-react";
@@ -31,6 +30,7 @@ import {
 } from "@/components/ui/table";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { useAuth } from "@/lib/auth";
+import { SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support";
 
 const LEDGER_PAGE_SIZE = 50;
 
@@ -274,25 +274,21 @@ export default function BillingPage() {
                     <div className="text-sm text-amber-900 dark:text-amber-200">
                         <p className="font-medium">Credit purchases are unavailable in OSS mode</p>
                         <p className="mt-1">
-                            You can&apos;t purchase credits from this self-hosted app. Sign up and
-                            purchase credits at{" "}
+                            You can&apos;t purchase credits from this self-hosted app. Contact{" "}
                             <a
-                                href="https://app.dograh.com"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 font-medium underline underline-offset-2"
+                                href={SUPPORT_MAILTO}
+                                className="font-medium underline underline-offset-2"
                             >
-                                app.dograh.com
-                                <ExternalLink className="h-3 w-3" />
-                            </a>
-                            . Then add the generated service key in{" "}
+                                {SUPPORT_EMAIL}
+                            </a>{" "}
+                            to arrange credits, then add the service key you receive in{" "}
                             <Link
                                 href="/model-configurations"
                                 className="font-medium underline underline-offset-2"
                             >
                                 Model Configurations
                             </Link>
-                            . Usage for that service key is visible in app.dograh.com.
+                            .
                         </p>
                     </div>
                 </div>

@@ -8,8 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { resolveBrowserBackendUrl } from "@/lib/apiClient";
+import { docsUrl } from "@/lib/support";
 
 const MCP_PATH = "/api/v1/mcp/";
+const MCP_DOC_URL = docsUrl("integrations/mcp");
 
 export function MCPSection() {
   const { config } = useAppConfig();
@@ -94,19 +96,23 @@ export function MCPSection() {
         )}
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        For step-by-step setup with Claude Code, Claude Desktop, Cursor, and
-        other clients, see the{" "}
-        <Link
-          href="https://docs.dograh.com/integrations/mcp"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary underline hover:no-underline"
-        >
-          MCP integration guide
-        </Link>
-        .
-      </p>
+      {/* The whole sentence exists to carry the guide link, so it disappears
+          with the link when no documentation site is configured. */}
+      {MCP_DOC_URL && (
+        <p className="text-xs text-muted-foreground">
+          For step-by-step setup with Claude Code, Claude Desktop, Cursor, and
+          other clients, see the{" "}
+          <Link
+            href={MCP_DOC_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary underline hover:no-underline"
+          >
+            MCP integration guide
+          </Link>
+          .
+        </p>
+      )}
     </div>
   );
 }

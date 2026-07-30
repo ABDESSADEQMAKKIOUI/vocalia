@@ -38,9 +38,29 @@ COPY ui/src ./src
 # Set build-time environment variables (needed for Next.js build)
 ENV NEXT_PUBLIC_NODE_ENV="oss"
 ENV NEXT_TELEMETRY_DISABLED="1"
-ENV NEXT_PUBLIC_CHATWOOT_URL="https://chat.dograh.com"
-ENV NEXT_PUBLIC_CHATWOOT_TOKEN="3fkFx2mCEjNHjM9gaNc4A82X"
 ENV BACKEND_URL="http://api:8000"
+
+# Support desk. Empty on purpose: the upstream values pointed the floating chat
+# bubble at the Dograh helpdesk with a shared token, which would have routed
+# THIS deployment's customer conversations into someone else's inbox.
+# ChatwootWidget bails out and renders nothing unless both are set, so a Volira
+# helpdesk is opt-in — pass both as build args to turn the bubble back on.
+ARG NEXT_PUBLIC_CHATWOOT_URL=""
+ARG NEXT_PUBLIC_CHATWOOT_TOKEN=""
+ENV NEXT_PUBLIC_CHATWOOT_URL=$NEXT_PUBLIC_CHATWOOT_URL
+ENV NEXT_PUBLIC_CHATWOOT_TOKEN=$NEXT_PUBLIC_CHATWOOT_TOKEN
+
+# Brand contact points consumed by src/lib/support.ts. Next inlines NEXT_PUBLIC_*
+# at build time, so setting these in docker-compose at runtime would do nothing —
+# they have to arrive here, as build args.
+ARG NEXT_PUBLIC_SUPPORT_EMAIL=""
+ARG NEXT_PUBLIC_DOCS_URL=""
+ARG NEXT_PUBLIC_TERMS_URL=""
+ARG NEXT_PUBLIC_PRIVACY_URL=""
+ENV NEXT_PUBLIC_SUPPORT_EMAIL=$NEXT_PUBLIC_SUPPORT_EMAIL
+ENV NEXT_PUBLIC_DOCS_URL=$NEXT_PUBLIC_DOCS_URL
+ENV NEXT_PUBLIC_TERMS_URL=$NEXT_PUBLIC_TERMS_URL
+ENV NEXT_PUBLIC_PRIVACY_URL=$NEXT_PUBLIC_PRIVACY_URL
 
 # Build the application with standalone mode
 # Increase Node.js heap size to prevent out-of-memory errors during build

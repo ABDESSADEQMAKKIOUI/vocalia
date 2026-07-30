@@ -682,6 +682,7 @@ const data = await response.json();`;
     const isBuiltinTool = tool.category === "calculator";
     const isMcpTool = tool.category === "mcp";
     const categoryConfig = getCategoryConfig(tool.category as ToolCategory);
+    const toolDocsUrl = TOOL_DOCUMENTATION_URLS[tool.category];
 
     return (
         <div className="min-h-screen">
@@ -725,9 +726,9 @@ const data = await response.json();`;
                                     View Code
                                 </Button>
                             )}
-                            {TOOL_DOCUMENTATION_URLS[tool.category] && (
+                            {toolDocsUrl && (
                                 <a
-                                    href={TOOL_DOCUMENTATION_URLS[tool.category]}
+                                    href={toolDocsUrl}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"

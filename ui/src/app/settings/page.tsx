@@ -12,6 +12,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { docsUrl } from "@/lib/support";
+
+const MCP_DOC_URL = docsUrl("integrations/mcp");
+const TRACING_DOC_URL = docsUrl("configurations/tracing");
 
 export default function SettingsPage() {
   return (
@@ -41,16 +45,21 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle>MCP Server</CardTitle>
             <CardDescription>
-              Let AI agents access your Dograh workspace and documentation via
-              the Model Context Protocol.{" "}
-              <a
-                href="https://docs.dograh.com/integrations/mcp"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-0.5 underline"
-              >
-                Learn more <ExternalLink className="h-3 w-3" />
-              </a>
+              Let AI agents access your Volira workspace and documentation via
+              the Model Context Protocol.
+              {MCP_DOC_URL && (
+                <>
+                  {" "}
+                  <a
+                    href={MCP_DOC_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-0.5 underline"
+                  >
+                    Learn more <ExternalLink className="h-3 w-3" />
+                  </a>
+                </>
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -62,15 +71,20 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle>Telemetry</CardTitle>
             <CardDescription>
-              Configure Langfuse tracing for your voice agent calls.{" "}
-              <a
-                href="https://docs.dograh.com/configurations/tracing"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-0.5 underline"
-              >
-                Learn more <ExternalLink className="h-3 w-3" />
-              </a>
+              Configure Langfuse tracing for your voice agent calls.
+              {TRACING_DOC_URL && (
+                <>
+                  {" "}
+                  <a
+                    href={TRACING_DOC_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-0.5 underline"
+                  >
+                    Learn more <ExternalLink className="h-3 w-3" />
+                  </a>
+                </>
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>

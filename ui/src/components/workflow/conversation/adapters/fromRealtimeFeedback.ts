@@ -1,8 +1,14 @@
+import { docsUrl } from "@/lib/support";
+
 import type {
     ConversationItem,
     RealtimeFeedbackEvent,
     RealtimeFeedbackMessage,
 } from "../types";
+
+// `undefined` when no documentation site is configured — NoticeCard then renders
+// the notice without a link.
+const INTERRUPTION_DOC_URL = docsUrl("configurations/interruption") ?? undefined;
 
 function feedbackEventText(event: RealtimeFeedbackEvent) {
     return (
@@ -78,7 +84,7 @@ function liveFeedbackItem(message: RealtimeFeedbackMessage, reasoningDurationMs?
             tone: "warning",
             title: "Interruption Disabled",
             text: message.text,
-            linkHref: "https://docs.dograh.com/configurations/interruption",
+            linkHref: INTERRUPTION_DOC_URL,
             linkLabel: "Learn more",
         };
     }
@@ -260,7 +266,7 @@ export function conversationItemsFromRealtimeFeedbackEvents(events: RealtimeFeed
                 tone: "warning",
                 title: "Interruption Disabled",
                 text: feedbackEventText(event),
-                linkHref: "https://docs.dograh.com/configurations/interruption",
+                linkHref: INTERRUPTION_DOC_URL,
                 linkLabel: "Learn more",
             });
             return;

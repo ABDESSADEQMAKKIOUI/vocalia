@@ -27,6 +27,21 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { WIDGET_MODE_DOCUMENTATION_URLS } from "@/constants/documentation";
 
+/**
+ * The embed snippet is rendered by the backend, which still emits the legacy
+ * Dograh naming. Rebrand it here so the code the customer pastes into their own
+ * site carries the Volira name. Both `/embed/volira-widget.js` (the widget) and
+ * `/embed/dograh-widget.js` (a shim that loads it) are served, so this only
+ * changes which path we hand out — snippets already deployed keep working.
+ * The replacements are no-ops once the backend emits the new naming itself.
+ */
+function brandEmbedScript(script: string): string {
+    return script
+        .replace(/Dograh Voice Widget/g, "Volira Voice Widget")
+        .replace(/dograh-widget\.js/g, "volira-widget.js")
+        .replace(/'dograh-widget'/g, "'volira-widget'");
+}
+
 interface EmbedDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -174,6 +189,8 @@ export function EmbedDialog({
         }
     };
 
+    const widgetDocsUrl = WIDGET_MODE_DOCUMENTATION_URLS[embedMode];
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-4xl w-full max-h-[90vh] overflow-y-auto">
@@ -183,15 +200,17 @@ export function EmbedDialog({
                             <Rocket className="h-5 w-5" />
                             Configure Widget
                         </DialogTitle>
-                        <a
-                            href={WIDGET_MODE_DOCUMENTATION_URLS[embedMode]}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors pr-6"
-                        >
-                            Docs
-                            <ExternalLink className="h-3.5 w-3.5" />
-                        </a>
+                        {widgetDocsUrl && (
+                            <a
+                                href={widgetDocsUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors pr-6"
+                            >
+                                Docs
+                                <ExternalLink className="h-3.5 w-3.5" />
+                            </a>
+                        )}
                     </div>
                     <DialogDescription>
                         Add &quot;{workflowName}&quot; to any website with a simple script tag.
@@ -437,8 +456,8 @@ export function EmbedDialog({
                                                 <ul className="text-sm space-y-2 text-muted-foreground">
                                                     <li>• Add the embed script tag to your page (see below).</li>
                                                     <li>• The widget renders no UI - render your own buttons.</li>
-                                                    <li>• Call <code className="text-xs">window.DograhWidget.start()</code> to begin a call.</li>
-                                                    <li>• Call <code className="text-xs">window.DograhWidget.end()</code> to end it.</li>
+                                                    <li>• Call <code className="text-xs">window.VoliraWidget.start()</code> to begin a call.</li>
+                                                    <li>• Call <code className="text-xs">window.VoliraWidget.end()</code> to end it.</li>
                                                     <li>• Subscribe to <code className="text-xs">onCallStart</code>, <code className="text-xs">onCallEnd</code>, <code className="text-xs">onStatusChange</code>, <code className="text-xs">onError</code> to drive your UI.</li>
                                                     <li>• <code className="text-xs">start()</code> must run inside a user-gesture handler (click) so the browser grants microphone access.</li>
                                                 </ul>
@@ -453,16 +472,16 @@ export function EmbedDialog({
                                                     <code className="text-blue-800 dark:text-blue-200">{`// Vanilla JS - keep your own state, render however you want
 let callStatus = 'idle';
 
-window.DograhWidget?.onStatusChange((status) => {
+window.VoliraWidget?.onStatusChange((status) => {
   callStatus = status;
   // ...trigger your render here (re-paint DOM, dispatch event, etc.)
 });
 
 document.getElementById('talk-btn').addEventListener('click', () => {
   if (callStatus === 'connected' || callStatus === 'connecting') {
-    window.DograhWidget.end();
+    window.VoliraWidget.end();
   } else {
-    window.DograhWidget.start();
+    window.VoliraWidget.start();
   }
 });`}</code>
                                                 </pre>
@@ -472,12 +491,12 @@ document.getElementById('talk-btn').addEventListener('click', () => {
   const [status, setStatus] = useState('idle');
 
   useEffect(() => {
-    window.DograhWidget?.onStatusChange(setStatus);
+    window.VoliraWidget?.onStatusChange(setStatus);
   }, []);
 
   const isLive = status === 'connected' || status === 'connecting';
   return (
-    <button onClick={() => isLive ? window.DograhWidget.end() : window.DograhWidget.start()}>
+    <button onClick={() => isLive ? window.VoliraWidget.end() : window.VoliraWidget.start()}>
       {/* render anything you want from \`status\` */}
     </button>
   );
@@ -496,23 +515,23 @@ document.getElementById('talk-btn').addEventListener('click', () => {
                                                     <li>• Add a div with id=&quot;dograh-inline-container&quot; where you want the widget</li>
                                                     <li>• The widget will render inside this container</li>
                                                     <li>• You have full control over the container&apos;s styling</li>
-                                                    <li>• Call window.DograhWidget.start() to begin the call</li>
-                                                    <li>• Call window.DograhWidget.end() to end the call</li>
+                                                    <li>• Call window.VoliraWidget.start() to begin the call</li>
+                                                    <li>• Call window.VoliraWidget.end() to end the call</li>
                                                 </ul>
                                             </div>
 
                                             <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 p-4 border border-blue-200 dark:border-blue-800">
                                                 <h4 className="font-medium mb-2 text-blue-900 dark:text-blue-100">Example React Component</h4>
                                                 <pre className="text-xs overflow-x-auto">
-                                                    <code className="text-blue-800 dark:text-blue-200">{`export function DograhAgent() {
+                                                    <code className="text-blue-800 dark:text-blue-200">{`export function VoliraAgent() {
   const [isCallActive, setIsCallActive] = useState(false);
 
   useEffect(() => {
     // Widget will auto-initialize when script loads
-    window.DograhWidget?.onCallStart(() => {
+    window.VoliraWidget?.onCallStart(() => {
       setIsCallActive(true);
     });
-    window.DograhWidget?.onCallEnd(() => {
+    window.VoliraWidget?.onCallEnd(() => {
       setIsCallActive(false);
     });
   }, []);
@@ -524,7 +543,7 @@ document.getElementById('talk-btn').addEventListener('click', () => {
         {/* Widget renders here */}
       </div>
       <button
-        onClick={() => window.DograhWidget?.start()}
+        onClick={() => window.VoliraWidget?.start()}
         disabled={isCallActive}
       >
         Start Call
@@ -564,7 +583,7 @@ document.getElementById('talk-btn').addEventListener('click', () => {
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
-                                                    onClick={() => copyToClipboard(embedToken.embed_script)}
+                                                    onClick={() => copyToClipboard(brandEmbedScript(embedToken.embed_script))}
                                                 >
                                                     {copied ? (
                                                         <>
@@ -581,7 +600,7 @@ document.getElementById('talk-btn').addEventListener('click', () => {
                                             </div>
                                             <div className="relative">
                                                 <pre className="bg-muted/50 rounded-lg p-4 text-xs overflow-x-auto whitespace-pre-wrap break-all">
-                                                    <code>{embedToken.embed_script}</code>
+                                                    <code>{brandEmbedScript(embedToken.embed_script)}</code>
                                                 </pre>
                                             </div>
                                             <p className="text-xs text-muted-foreground">
