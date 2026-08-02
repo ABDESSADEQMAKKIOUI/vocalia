@@ -17,19 +17,27 @@ router = APIRouter(prefix="/workflow")
 
 
 def generate_embed_script(token: EmbedTokenModel) -> str:
-    """Generate the embed script for a given token."""
+    """Generate the embed script for a given token.
+
+    This snippet is pasted verbatim into a customer's own website, so every
+    name in it is public branding. It pointed at the upstream vendor's widget
+    file and script id long after the widget itself was renamed: the rebranded
+    volira-widget.js shipped, but nothing ever emitted its path. The legacy
+    /embed/dograh-widget.js remains served as a loader shim, so pages carrying
+    an older snippet keep working.
+    """
     base_url = str(UI_APP_URL).rstrip("/")
 
-    return f"""<!-- Dograh Voice Widget -->
+    return f"""<!-- Volira Voice Widget -->
 <script>
   (function(d, s, id) {{
     var js, fjs = d.getElementsByTagName(s)[0];
     if (d.getElementById(id)) return;
     js = d.createElement(s); js.id = id;
-    js.src = '{base_url}/embed/dograh-widget.js?token={token.token}&environment={ENVIRONMENT}&apiEndpoint={BACKEND_API_ENDPOINT}';
+    js.src = '{base_url}/embed/volira-widget.js?token={token.token}&environment={ENVIRONMENT}&apiEndpoint={BACKEND_API_ENDPOINT}';
     js.async = true;
     fjs.parentNode.insertBefore(js, fjs);
-  }}(document, 'script', 'dograh-widget'));
+  }}(document, 'script', 'volira-widget'));
 </script>"""
 
 

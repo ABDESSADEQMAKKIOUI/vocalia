@@ -27,20 +27,12 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { WIDGET_MODE_DOCUMENTATION_URLS } from "@/constants/documentation";
 
-/**
- * The embed snippet is rendered by the backend, which still emits the legacy
- * Dograh naming. Rebrand it here so the code the customer pastes into their own
- * site carries the Volira name. Both `/embed/volira-widget.js` (the widget) and
- * `/embed/dograh-widget.js` (a shim that loads it) are served, so this only
- * changes which path we hand out — snippets already deployed keep working.
- * The replacements are no-ops once the backend emits the new naming itself.
- */
-function brandEmbedScript(script: string): string {
-    return script
-        .replace(/Dograh Voice Widget/g, "Volira Voice Widget")
-        .replace(/dograh-widget\.js/g, "volira-widget.js")
-        .replace(/'dograh-widget'/g, "'volira-widget'");
-}
+/* The snippet used to be rebranded here, on its way to the clipboard, because
+   the backend still emitted the upstream naming. That band-aid is gone: the
+   backend now emits the Volira naming itself (api/routes/workflow_embed.py).
+   Rewriting it a second time in the UI is what let the real defect hide — the
+   displayed snippet looked correct while the backend kept handing out the
+   legacy path everywhere else it was used. One owner, no silent rewrite. */
 
 interface EmbedDialogProps {
     open: boolean;
@@ -145,7 +137,7 @@ export function EmbedDialog({
                             callToActionText,
                             size: "medium",
                             autoStart: false,
-                            containerId: embedMode === "inline" ? "dograh-inline-container" : undefined,
+                            containerId: embedMode === "inline" ? "volira-inline-container" : undefined,
                         },
                         usage_limit: null,
                         expires_in_days: null,
@@ -512,7 +504,7 @@ document.getElementById('talk-btn').addEventListener('click', () => {
                                             <div className="rounded-lg bg-muted/50 p-4">
                                                 <h4 className="font-medium mb-2">Integration Instructions</h4>
                                                 <ul className="text-sm space-y-2 text-muted-foreground">
-                                                    <li>• Add a div with id=&quot;dograh-inline-container&quot; where you want the widget</li>
+                                                    <li>• Add a div with id=&quot;volira-inline-container&quot; where you want the widget</li>
                                                     <li>• The widget will render inside this container</li>
                                                     <li>• You have full control over the container&apos;s styling</li>
                                                     <li>• Call window.VoliraWidget.start() to begin the call</li>
@@ -539,7 +531,7 @@ document.getElementById('talk-btn').addEventListener('click', () => {
   return (
     <div className="my-8">
       <h2>Talk to Our Agent</h2>
-      <div id="dograh-inline-container" className="min-h-[400px]">
+      <div id="volira-inline-container" className="min-h-[400px]">
         {/* Widget renders here */}
       </div>
       <button
@@ -583,7 +575,7 @@ document.getElementById('talk-btn').addEventListener('click', () => {
                                                 <Button
                                                     size="sm"
                                                     variant="outline"
-                                                    onClick={() => copyToClipboard(brandEmbedScript(embedToken.embed_script))}
+                                                    onClick={() => copyToClipboard(embedToken.embed_script)}
                                                 >
                                                     {copied ? (
                                                         <>
@@ -600,7 +592,7 @@ document.getElementById('talk-btn').addEventListener('click', () => {
                                             </div>
                                             <div className="relative">
                                                 <pre className="bg-muted/50 rounded-lg p-4 text-xs overflow-x-auto whitespace-pre-wrap break-all">
-                                                    <code>{brandEmbedScript(embedToken.embed_script)}</code>
+                                                    <code>{embedToken.embed_script}</code>
                                                 </pre>
                                             </div>
                                             <p className="text-xs text-muted-foreground">

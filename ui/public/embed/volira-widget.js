@@ -46,6 +46,7 @@
     pcId: null,
     connectionStatus: 'idle', // idle, connecting, connected, failed
     audioElement: null,
+    inlineContainer: null, // Host-page element the inline widget renders into
     turnCredentials: null, // TURN server credentials
     callStartedAt: null, // Timestamp when call connected (for duration tracking)
     gracefulDisconnect: false,
@@ -68,6 +69,9 @@
 
     // Get token from script URL. The legacy /embed/dograh-widget.js path is
     // still served (it loads this file), so accept either filename here.
+    // Both names must stay listed: this selector is the fallback for browsers
+    // where document.currentScript is null, and a page carrying the legacy
+    // snippet has no <script> matching the current name at all.
     const script = document.currentScript
       || document.querySelector('script[src*="volira-widget.js"], script[src*="dograh-widget.js"]');
     if (!script) {
@@ -109,8 +113,13 @@
       token: token,
       apiBaseUrl: apiBaseUrl,
       environment: environment || 'production',
-      // Allow data attributes to override fetched config
-      contextVariables: parseContextVariables(script.getAttribute('data-dograh-context'))
+      // Allow data attributes to override fetched config. The legacy
+      // data-dograh-context spelling is still honoured: it lives on the
+      // CUSTOMER's page, not ours, so we cannot rename it out from under them.
+      contextVariables: parseContextVariables(
+        script.getAttribute('data-volira-context')
+        || script.getAttribute('data-dograh-context')
+      )
     };
 
     try {
@@ -134,7 +143,7 @@
         ...state.config,
         workflowId: configData.workflow_id,
         embedMode: configData.settings?.embedMode || 'floating',
-        containerId: configData.settings?.containerId || 'dograh-inline-container',
+        containerId: configData.settings?.containerId || 'volira-inline-container',
         position: configData.position || DEFAULT_CONFIG.position,
         buttonColor: configData.settings?.buttonColor || '#10b981',
         buttonText: configData.settings?.buttonText || 'Talk to Agent',
@@ -187,36 +196,36 @@
    * Inject widget styles
    */
   function injectStyles() {
-    if (document.getElementById('dograh-widget-styles')) return;
+    if (document.getElementById('volira-widget-styles')) return;
 
     const styles = `
-      .dograh-widget-container {
+      .volira-widget-container {
         position: fixed;
         z-index: 999999;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       }
 
-      .dograh-widget-container.bottom-right {
+      .volira-widget-container.bottom-right {
         bottom: 20px;
         right: 20px;
       }
 
-      .dograh-widget-container.bottom-left {
+      .volira-widget-container.bottom-left {
         bottom: 20px;
         left: 20px;
       }
 
-      .dograh-widget-container.top-right {
+      .volira-widget-container.top-right {
         top: 20px;
         right: 20px;
       }
 
-      .dograh-widget-container.top-left {
+      .volira-widget-container.top-left {
         top: 20px;
         left: 20px;
       }
 
-      .dograh-widget-cta {
+      .volira-widget-cta {
         display: inline-flex;
         align-items: center;
         gap: 8px;
@@ -231,32 +240,32 @@
         max-width: calc(100vw - 40px);
         box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
         transition: filter 150ms ease, transform 100ms ease, box-shadow 200ms ease;
-        animation: dograh-cta-in 220ms ease-out;
+        animation: volira-cta-in 220ms ease-out;
       }
 
-      .dograh-widget-cta:hover {
+      .volira-widget-cta:hover {
         filter: brightness(1.08);
         box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
       }
-      .dograh-widget-cta:active { transform: scale(0.98); }
+      .volira-widget-cta:active { transform: scale(0.98); }
 
-      .dograh-widget-cta.dograh-state-connecting { background: #f59e0b !important; animation: dograh-pulse 1.6s infinite; }
-      .dograh-widget-cta.dograh-state-connected  { background: #ef4444 !important; }
-      .dograh-widget-cta.dograh-state-failed     { background: #ef4444 !important; opacity: 0.85; }
+      .volira-widget-cta.volira-state-connecting { background: #f59e0b !important; animation: volira-pulse 1.6s infinite; }
+      .volira-widget-cta.volira-state-connected  { background: #ef4444 !important; }
+      .volira-widget-cta.volira-state-failed     { background: #ef4444 !important; opacity: 0.85; }
 
-      @keyframes dograh-pulse {
+      @keyframes volira-pulse {
         0%, 100% { opacity: 1; }
         50% { opacity: 0.6; }
       }
 
-      @keyframes dograh-cta-in {
+      @keyframes volira-cta-in {
         from { opacity: 0; transform: translateY(8px); }
         to { opacity: 1; transform: translateY(0); }
       }
     `;
 
     const styleSheet = document.createElement('style');
-    styleSheet.id = 'dograh-widget-styles';
+    styleSheet.id = 'volira-widget-styles';
     styleSheet.textContent = styles;
     document.head.appendChild(styleSheet);
   }
@@ -276,11 +285,11 @@
    */
   function createFloatingWidget() {
     const container = document.createElement('div');
-    container.className = `dograh-widget-container ${state.config.position}`;
-    container.id = 'dograh-widget-root';
+    container.className = `volira-widget-container ${state.config.position}`;
+    container.id = 'volira-widget-root';
 
     const audio = document.createElement('audio');
-    audio.id = 'dograh-widget-audio';
+    audio.id = 'volira-widget-audio';
     audio.autoplay = true;
     audio.style.display = 'none';
     container.appendChild(audio);
@@ -295,7 +304,7 @@
    * element so an in-progress call is not interrupted on status changes.
    */
   function renderFloating() {
-    const container = document.getElementById('dograh-widget-root');
+    const container = document.getElementById('volira-widget-root');
     if (!container) return;
 
     Array.from(container.children).forEach((child) => {
@@ -305,9 +314,9 @@
     const status = state.connectionStatus || 'idle';
 
     const button = document.createElement('button');
-    button.id = 'dograh-widget-cta';
+    button.id = 'volira-widget-cta';
     button.type = 'button';
-    button.className = `dograh-widget-cta dograh-state-${status}`;
+    button.className = `volira-widget-cta volira-state-${status}`;
     // Idle uses configured color; status states use CSS-defined colors.
     if (status === 'idle') {
       button.style.backgroundColor = state.config.buttonColor;
@@ -332,7 +341,7 @@
    */
   function createHeadlessWidget() {
     const audio = document.createElement('audio');
-    audio.id = 'dograh-widget-audio';
+    audio.id = 'volira-widget-audio';
     audio.autoplay = true;
     audio.style.display = 'none';
     document.body.appendChild(audio);
@@ -356,11 +365,44 @@
   }
 
   /**
+   * Resolve the host page's inline container.
+   *
+   * The div carrying this id lives on the CUSTOMER's page, written from
+   * whatever instructions they happened to read, while the configured id comes
+   * from a token saved in our database. The two drift apart in both directions:
+   * a token saved before the rename still says dograh-inline-container even
+   * though the dashboard now tells them to write volira-inline-container, and a
+   * freshly saved token says the opposite of a page written earlier. Trying
+   * every known id — configured first, so an explicitly chosen custom id always
+   * wins — is what keeps the widget from silently rendering nothing.
+   *
+   * The element is memoised: createInlineWidget and updateInlineStatus must act
+   * on the SAME element, or every status update after the first render is lost.
+   */
+  function resolveInlineContainer() {
+    if (state.inlineContainer && state.inlineContainer.isConnected) {
+      return state.inlineContainer;
+    }
+    const candidates = [
+      state.config.containerId,
+      'volira-inline-container',
+      'dograh-inline-container',
+    ];
+    for (const id of candidates) {
+      const found = id && document.getElementById(id);
+      if (found) {
+        state.inlineContainer = found;
+        return found;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Create inline widget UI
    */
   function createInlineWidget() {
-    // Find container element
-    const container = document.getElementById(state.config.containerId);
+    const container = resolveInlineContainer();
     if (!container) {
       console.error(`Volira Widget: Container element with id "${state.config.containerId}" not found`);
       if (state.callbacks.onError) {
@@ -371,11 +413,11 @@
 
     // Clear container
     container.innerHTML = '';
-    container.className = 'dograh-inline-container';
+    container.className = 'volira-inline-container';
 
     // Add minimal inline styles
     const inlineStyles = `
-      .dograh-inline-container {
+      .volira-inline-container {
         min-height: 200px;
         padding: 20px;
         display: flex;
@@ -383,38 +425,38 @@
         justify-content: center;
       }
 
-      .dograh-inline-status {
+      .volira-inline-status {
         text-align: center;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       }
 
-      .dograh-inline-status-icon {
+      .volira-inline-status-icon {
         width: 64px;
         height: 64px;
         margin: 0 auto 20px;
       }
 
-      .dograh-inline-status-text {
+      .volira-inline-status-text {
         font-size: 18px;
         font-weight: 500;
         margin: 0 0 8px;
         color: #111827;
       }
 
-      .dograh-inline-status-subtext {
+      .volira-inline-status-subtext {
         font-size: 14px;
         color: #6b7280;
         margin: 0 0 20px;
       }
 
-      .dograh-inline-button-container {
+      .volira-inline-button-container {
         display: flex;
         gap: 12px;
         justify-content: center;
         margin-top: 20px;
       }
 
-      .dograh-inline-btn {
+      .volira-inline-btn {
         padding: 12px 32px;
         border-radius: 8px;
         border: none;
@@ -426,28 +468,28 @@
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
       }
 
-      .dograh-inline-btn:hover {
+      .volira-inline-btn:hover {
         transform: translateY(-2px);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
       }
 
-      .dograh-inline-btn:active {
+      .volira-inline-btn:active {
         transform: translateY(0);
       }
 
-      .dograh-inline-btn-start {
+      .volira-inline-btn-start {
         background: #10b981;
       }
 
-      .dograh-inline-btn-start:hover {
+      .volira-inline-btn-start:hover {
         background: #059669;
       }
 
-      .dograh-inline-btn-end {
+      .volira-inline-btn-end {
         background: #ef4444;
       }
 
-      .dograh-inline-btn-end:hover {
+      .volira-inline-btn-end:hover {
         background: #dc2626;
       }
 
@@ -456,15 +498,15 @@
         50% { opacity: 0.5; }
       }
 
-      .dograh-inline-pulse {
+      .volira-inline-pulse {
         animation: pulse 2s infinite;
       }
     `;
 
     // Add inline styles if not already added
-    if (!document.getElementById('dograh-inline-styles')) {
+    if (!document.getElementById('volira-inline-styles')) {
       const styleSheet = document.createElement('style');
-      styleSheet.id = 'dograh-inline-styles';
+      styleSheet.id = 'volira-inline-styles';
       styleSheet.textContent = inlineStyles;
       document.head.appendChild(styleSheet);
     }
@@ -486,7 +528,7 @@
    * Update inline widget status
    */
   function updateInlineStatus(status, text, subtext) {
-    const container = document.getElementById(state.config.containerId);
+    const container = resolveInlineContainer();
     if (!container) return;
 
     // Update state
@@ -512,14 +554,14 @@
     if (status === 'idle' || status === 'failed') {
       // Button to start with configured color
       buttonHTML = `
-        <button class="dograh-inline-btn dograh-inline-btn-start" id="dograh-inline-start-btn" style="background: ${state.config.buttonColor};">
+        <button class="volira-inline-btn volira-inline-btn-start" id="volira-inline-start-btn" style="background: ${state.config.buttonColor};">
           ${status === 'failed' ? 'Retry' : state.config.buttonText}
         </button>
       `;
     } else if (status === 'connecting' || status === 'connected') {
       // Red button to end
       buttonHTML = `
-        <button class="dograh-inline-btn dograh-inline-btn-end" id="dograh-inline-end-btn">
+        <button class="volira-inline-btn volira-inline-btn-end" id="volira-inline-end-btn">
           End Call
         </button>
       `;
@@ -528,13 +570,13 @@
     // Update container content (preserve audio element)
     const audioElement = state.audioElement;
     container.innerHTML = `
-      <div class="dograh-inline-status">
-        <div class="dograh-inline-status-icon ${status === 'connecting' ? 'dograh-inline-pulse' : ''}">
+      <div class="volira-inline-status">
+        <div class="volira-inline-status-icon ${status === 'connecting' ? 'volira-inline-pulse' : ''}">
           ${getStatusIcon(status)}
         </div>
-        <p class="dograh-inline-status-text">${displayText}</p>
-        <p class="dograh-inline-status-subtext">${displaySubtext}</p>
-        <div class="dograh-inline-button-container">
+        <p class="volira-inline-status-text">${displayText}</p>
+        <p class="volira-inline-status-subtext">${displaySubtext}</p>
+        <div class="volira-inline-button-container">
           ${buttonHTML}
         </div>
       </div>
@@ -546,10 +588,10 @@
     }
 
     // Attach event handlers
-    const startBtn = document.getElementById('dograh-inline-start-btn');
+    const startBtn = document.getElementById('volira-inline-start-btn');
     if (startBtn) startBtn.onclick = startCall;
 
-    const endBtn = document.getElementById('dograh-inline-end-btn');
+    const endBtn = document.getElementById('volira-inline-end-btn');
     if (endBtn) endBtn.onclick = stopCall;
 
     // Trigger status change callback
@@ -569,7 +611,7 @@
         <line x1="12" y1="19" x2="12" y2="23"/>
         <line x1="8" y1="23" x2="16" y2="23"/>
       </svg>`,
-      connecting: `<svg class="dograh-widget-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      connecting: `<svg class="volira-widget-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M12 2v4"/>
         <path d="M12 18v4"/>
         <path d="M4.93 4.93l2.83 2.83"/>
@@ -1117,7 +1159,11 @@
     // Initialize inline mode manually (for advanced use cases)
     initInline: (options) => {
       if (options.container) {
-        state.config.containerId = options.container.id || 'dograh-inline-container';
+        state.config.containerId = options.container.id || 'volira-inline-container';
+        // The caller handed us the element itself, so honour it directly. Going
+        // back through getElementById would lose an unnamed container: the
+        // fallback id above names an element that does not exist on their page.
+        state.inlineContainer = options.container;
       }
       state.config.embedMode = 'inline';
 
