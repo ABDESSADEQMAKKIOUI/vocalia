@@ -1,0 +1,95 @@
+# Production overlay — Volira at https://volira.cfpss.ma
+#
+#   docker compose -f docker-compose.saas.yaml -f docker-compose.volira.yaml up -d
+#
+# Layered on top of docker-compose.saas.yaml, this:
+#   - rebinds EVERY published port to 127.0.0.1. The host firewall is not the
+#     safety net here (ufw is inactive), so the bind address is. Without this,
+#     publishing postgres/redis/minio puts them straight on the public internet.
+#     `!override` is required: compose merges port lists by appending, so a
+#     plain redeclaration would try to bind the same port twice.
+#   - keeps the stack off ports 80/443, which belong to the safm-demo nginx.
+#     That nginx terminates TLS for volira.cfpss.ma and proxies in over the
+#     shared `volira-edge` network.
+#   - restarts everything unless explicitly stopped. There is no separate
+#     worker service: start_services_docker.sh runs uvicorn and the arq
+#     worker side by side inside the api container.
+#
+#   - caps every container's memory and pid count. This host also runs the
+#     facturation.cfpss.ma invoicing platform: without a ceiling, one runaway
+#     volira process can starve a production system that has nothing to do with
+#     it. The numbers total ~8 GiB of the 22 GiB available.
+#   - sets no-new-privileges everywhere, and drops all capabilities on the two
+#     application containers, which listen above port 1024 and need none. The
+#     datastores keep theirs: their entrypoints chown data directories and drop
+#     to their own uid at start-up.
+#
+# The public origin is set in .env (PUBLIC_BASE_URL / BACKEND_API_ENDPOINT).
+
+services:
+  postgres:
+    container_name: volira-postgres
+    restart: unless-stopped
+    mem_limit: 2g
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    ports: !override
+      - "127.0.0.1:5442:5432"
+
+  redis:
+    container_name: volira-redis
+    restart: unless-stopped
+    mem_limit: 512m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    ports: !override
+      - "127.0.0.1:6389:6379"
+
+  minio:
+    container_name: volira-minio
+    restart: unless-stopped
+    mem_limit: 512m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    ports: !override
+      - "127.0.0.1:9010:9000"
+      - "127.0.0.1:9011:9001"
+
+  api:
+    container_name: volira-api
+    restart: unless-stopped
+    mem_limit: 4g
+    pids_limit: 1024
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports: !override
+      - "127.0.0.1:8010:8000"
+    networks:
+      - app-network
+      - volira-edge
+
+  ui:
+    container_name: volira-ui
+    restart: unless-stopped
+    mem_limit: 1g
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports: !override
+      - "127.0.0.1:3020:3010"
+    networks:
+      - app-network
+      - volira-edge
+
+networks:
+  # Shared with the safm-demo nginx container, which is attached to it so it can
+  # reach volira's ui and api by name. Nothing else joins it.
+  volira-edge:
+    name: volira-edge

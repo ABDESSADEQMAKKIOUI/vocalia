@@ -27,3 +27,15 @@ node_modules/
 .superpowers/
 docs/superpowers/
 .gstack/
+
+# A deployment checkout IS a git repo, and operators keep their environment
+# backups and the bootstrapped admin credentials right next to it. Plain
+# ".env" matches only that one name, so a dated backup or a ".bak" copy shows
+# up as an untracked file that a single `git add -A` would commit - carrying
+# the Google client secret, the database password and the platform-admin
+# password into the repository. Match the whole family, not just the
+# canonical name.
+.env.*
+!.env.example
+!.env.*.example
+.admin-credentials

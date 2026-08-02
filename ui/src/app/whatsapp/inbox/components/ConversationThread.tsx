@@ -13,8 +13,6 @@ import {
     type WhatsAppInboxMessage,
 } from '@/lib/messagingApi';
 
-import { MessageBubble } from './MessageBubble';
-import { ReplyBox } from './ReplyBox';
 import {
     conversationDisplayName,
     conversationInitials,
@@ -23,6 +21,8 @@ import {
     formatHourMinute,
     isServiceWindowOpen,
 } from './inboxUtils';
+import { MessageBubble } from './MessageBubble';
+import { ReplyBox } from './ReplyBox';
 
 interface ConversationThreadProps {
     detail: WhatsAppInboxDetail | null;
