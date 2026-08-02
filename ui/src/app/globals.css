@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./volira-fonts.css";
 
 @plugin "tailwindcss-animate";
 
@@ -7,7 +8,12 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  /* Charte Volira : Outfit pour les titres, Asap pour le texte courant.
+     Cairo prend le relais sur l'arabe et la darija via son unicode-range —
+     inutile de basculer la famille dans le code, la police se choisit seule
+     selon les caracteres rencontres. */
+  --font-sans: var(--font-body);
+  --font-heading: var(--font-display);
   --font-mono: var(--font-geist-mono);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -47,83 +53,112 @@
 }
 
 :root {
-  --radius: 0.625rem;
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  /* Single restrained warm accent — used only on primary CTAs + focus rings. */
-  --cta: oklch(0.72 0.15 65);
-  --cta-foreground: oklch(0.16 0.02 60);
-  /* Giant faded "dograh" wordmark (authentic Proxima Nova letterforms traced
-     from the brand logo PNG — the font is commercial, so the lettering ships
-     as static artwork in /public; fill + 0.9% opacity are baked into the
-     files). Theme-switched here; consumed by .app-surface and .auth-imprint. */
+  /* ------------------------------------------------------------------ */
+  /* Charte Volira appliquee au theme shadcn.                            */
+  /*                                                                     */
+  /* Le theme d'origine etait en gris purs (chroma 0 partout). Les       */
+  /* valeurs ci-dessous sont celles de tokens/colors.css du design       */
+  /* system, en hexadecimal — pas de conversion oklch approximative :    */
+  /* la couleur de marque doit etre exactement celle du logo.            */
+  /*                                                                     */
+  /* PIEGE EVITE : dans shadcn, --accent est la surface de SURVOL des    */
+  /* menus et lignes de tableau, pas l'accent de marque. Y mettre        */
+  /* l'ambre aurait couvert l'interface d'orange, exactement ce que la   */
+  /* charte interdit ("l'ambre est rare : jamais d'aplat large").        */
+  /* L'ambre reste donc sur --cta seul, la ou elle appelle a l'action.   */
+  /* ------------------------------------------------------------------ */
+  --radius: 0.75rem;
+
+  --background: #FFFFFF;
+  --foreground: #12222B;
+  --card: #FFFFFF;
+  --card-foreground: #12222B;
+  --popover: #FFFFFF;
+  --popover-foreground: #12222B;
+
+  --primary: #0D5C63;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F0F4F4;
+  --secondary-foreground: #12222B;
+  --muted: #F0F4F4;
+  --muted-foreground: #53696F;
+
+  /* Surface de survol : sarcelle tres pale, pas ambre. */
+  --accent: #EDF6F7;
+  --accent-foreground: #0D5C63;
+
+  --destructive: #B3362E;
+  --border: #E3EAEA;
+  --input: #C9D6D7;
+  --ring: #0D5C63;
+
+  /* Graphiques : degrade de la marque plutot que l'arc-en-ciel par defaut,
+     avec l'ambre en dernier pour la serie qu'on veut faire ressortir. */
+  --chart-1: #0D5C63;
+  --chart-2: #3FBFCC;
+  --chart-3: #0A4A50;
+  --chart-4: #6E8288;
+  --chart-5: #E08A3C;
+
+  --sidebar: #F0F4F4;
+  --sidebar-foreground: #12222B;
+  --sidebar-primary: #0D5C63;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #EDF6F7;
+  --sidebar-accent-foreground: #0D5C63;
+  --sidebar-border: #E3EAEA;
+  --sidebar-ring: #0D5C63;
+
+  /* L'accent rare de la charte, reserve aux appels a l'action et au focus. */
+  --cta: #E08A3C;
+  --cta-foreground: #FFFFFF;
+
   --brand-imprint: url("/brand-imprint-light.svg");
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-  /* Warm accent, slightly brighter against the near-black surfaces. */
-  --cta: oklch(0.78 0.16 67);
-  --cta-foreground: oklch(0.16 0.02 60);
+  /* Sur fond sombre la charte impose le sarcelle clair (#3FBFCC) : le
+     sarcelle profond du logo devient illisible sur l'encre. */
+  --background: #12222B;
+  --foreground: #F2F7F7;
+  --card: #1C3540;
+  --card-foreground: #F2F7F7;
+  --popover: #1C3540;
+  --popover-foreground: #F2F7F7;
+
+  --primary: #3FBFCC;
+  --primary-foreground: #0B161D;
+  --secondary: #1C3540;
+  --secondary-foreground: #F2F7F7;
+  --muted: #1C3540;
+  --muted-foreground: #B8CDD0;
+
+  --accent: #31454F;
+  --accent-foreground: #3FBFCC;
+
+  --destructive: #E4796F;
+  --border: #2A424C;
+  --input: #31454F;
+  --ring: #3FBFCC;
+
+  --chart-1: #3FBFCC;
+  --chart-2: #0D5C63;
+  --chart-3: #B8CDD0;
+  --chart-4: #6E8288;
+  --chart-5: #E08A3C;
+
+  --sidebar: #0B161D;
+  --sidebar-foreground: #F2F7F7;
+  --sidebar-primary: #3FBFCC;
+  --sidebar-primary-foreground: #0B161D;
+  --sidebar-accent: #1C3540;
+  --sidebar-accent-foreground: #3FBFCC;
+  --sidebar-border: #2A424C;
+  --sidebar-ring: #3FBFCC;
+
+  --cta: #E08A3C;
+  --cta-foreground: #12222B;
+
   --brand-imprint: url("/brand-imprint-dark.svg");
 }
 
