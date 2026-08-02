@@ -36,7 +36,14 @@ PUBLIC_HOST = os.getenv("PUBLIC_HOST") or None
 BACKEND_API_ENDPOINT = (
     os.getenv("BACKEND_API_ENDPOINT") or PUBLIC_BASE_URL or "http://localhost:8000"
 )
-UI_APP_URL = os.getenv("UI_APP_URL", "http://localhost:3010")
+# Public URL the backend redirects a browser back to after an external consent
+# flow (Google OAuth today). Derives from PUBLIC_BASE_URL like the endpoint
+# above: on a single-host install the UI and the API share one origin, so an
+# operator who set PUBLIC_BASE_URL has already said where the browser should
+# land. Left as a bare localhost default it silently sent every customer
+# returning from Google's consent screen to a dead page on their own machine.
+# Set UI_APP_URL explicitly only for a split deployment (UI on another domain).
+UI_APP_URL = os.getenv("UI_APP_URL") or PUBLIC_BASE_URL or "http://localhost:3010"
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 REDIS_URL = os.environ["REDIS_URL"]

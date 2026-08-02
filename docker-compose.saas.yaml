@@ -130,6 +130,12 @@ services:
       # The UI picks it up from /health, so it must be set for a parallel run.
       BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8010}"
 
+      # Where the backend sends a browser back to after an external consent
+      # flow, and the origin baked into the embed snippet customers paste on
+      # their own sites. Defaults to PUBLIC_BASE_URL (api/constants.py); set it
+      # only for a split deployment where the UI lives on another domain.
+      UI_APP_URL: "${UI_APP_URL:-}"
+
       # Database configuration (containerized postgres of THIS stack)
       DATABASE_URL: "postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres"
 
