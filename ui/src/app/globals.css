@@ -14,6 +14,10 @@
      selon les caracteres rencontres. */
   --font-sans: var(--font-body);
   --font-heading: var(--font-display);
+  /* --font-arabic is deliberately NOT mapped here: inside @theme inline the
+     name being defined and the one referenced would be the same, which is the
+     circular self-reference that already broke --font-display once. The base
+     rule below reads it straight from :root instead. */
   --font-mono: var(--font-geist-mono);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -170,6 +174,36 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Outfit is the charte's display face, and headings are where it belongs.
+     Declaring --font-heading in @theme is not enough on its own: Tailwind v4
+     only emits a `font-heading` utility for class names it actually finds in
+     the source, and no component asks for one — so every title was rendering
+     in the body face and the charte was only half applied. Binding the family
+     here covers the whole app, including the shadcn slots (card, dialog,
+     sheet, alert titles) that render as <div> rather than a heading tag. */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  [data-slot="card-title"],
+  [data-slot="dialog-title"],
+  [data-slot="sheet-title"],
+  [data-slot="alert-title"] {
+    font-family: var(--font-heading);
+  }
+
+  /* Cairo carries Arabic and darija. Its unicode-range already routes Arabic
+     glyphs to it inside any --font-body run, so this exists for the case the
+     range cannot cover: a block explicitly marked Arabic, where the whole run
+     — digits, punctuation and latin words included — should be set in Cairo
+     rather than mixing two faces mid-sentence. */
+  :lang(ar),
+  [dir="rtl"] {
+    font-family: var(--font-arabic);
+  }
 }
 
 @keyframes spin-slow {
@@ -267,13 +301,17 @@
 
   /* Matte app background — flat charcoal (dark) / soft paper (light), NO
      gradients, with one subtle graphic in BOTH themes: the giant faded
-     "dograh" wordmark (--brand-imprint, defined in :root/.dark) pinned to
-     the bottom of the viewport, echoing the dograh.com footer. */
+     Volira wordmark (--brand-imprint, defined in :root/.dark) pinned to
+     the bottom of the viewport.
+     The colour is --background, not a literal: this is the app's main canvas,
+     so hardcoding it meant the largest surface in the product was the one
+     place the charte did NOT reach — a warm near-neutral where the charte
+     asks for its blue-night ground. */
   /* NOTE: background-attachment: fixed positions in VIEWPORT space but only
      paints inside .app-surface, which starts right of the ~270px sidebar —
      the +135px x-shift recentres the wordmark on the VISIBLE canvas. */
   .app-surface {
-    background-color: oklch(0.984 0.001 80);
+    background-color: var(--background);
     background-image: var(--brand-imprint);
     background-size: min(68vw, 980px) auto;
     background-position: calc(50% + 135px) calc(100% - 24px);
@@ -286,11 +324,9 @@
       background-position: center calc(100% - 24px);
     }
   }
-  .dark .app-surface {
-    background-color: oklch(0.165 0.002 80);
-  }
+  /* No .dark override needed: --background already carries the dark ground. */
 
-  /* Giant faded "dograh" imprint for the auth pages (applied to the AuthShell
+  /* Giant faded Volira imprint for the auth pages (applied to the AuthShell
      form column, shared by Stack + OSS login/signup). Same --brand-imprint as
      .app-surface; element-relative here (no fixed attachment), so it centers
      and scales to whatever element carries the class. */
@@ -320,7 +356,7 @@
    a 1px highlight line plus an inner bloom fading rightwards. */
 .dark .app-sidebar-dock [data-slot="sidebar-inner"] {
   border-color: rgb(255 255 255 / 0.1);
-  background-color: oklch(0.18 0.002 80);
+  background-color: var(--sidebar);
   box-shadow:
     inset 1px 0 0 rgb(255 255 255 / 0.1),
     inset 3px 0 6px -4px rgb(255 255 255 / 0.08),
@@ -348,7 +384,7 @@
    amber underline on focus. Applied by LeadModalShell; CaptchaChallenge
    reuses slab + underline. */
 .dark .lead-form-slab {
-  background-color: oklch(0.215 0 0);
+  background-color: var(--card);
   border-color: rgb(255 255 255 / 0.1);
 }
 /* Muted, compact labels — the big white default labels read amateurish. */
