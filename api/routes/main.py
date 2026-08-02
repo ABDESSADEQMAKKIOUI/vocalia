@@ -10,6 +10,7 @@ from api.routes.auth import router as auth_router
 from api.routes.campaign import router as campaign_router
 from api.routes.credentials import router as credentials_router
 from api.routes.folder import router as folder_router
+from api.routes.integrations_google import router as integrations_google_router
 from api.routes.knowledge_base import router as knowledge_base_router
 from api.routes.messaging_config import router as messaging_config_router
 from api.routes.messaging_inbox import router as messaging_inbox_router
@@ -72,6 +73,7 @@ router.include_router(messaging_whatsapp_router)
 router.include_router(messaging_templates_router)
 router.include_router(messaging_config_router)
 router.include_router(messaging_inbox_router)
+router.include_router(integrations_google_router)
 
 for _integration_router in all_routers():
     router.include_router(_integration_router)

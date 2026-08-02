@@ -230,3 +230,68 @@ WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID = (
     os.getenv("WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID") or None
 )
 WHATSAPP_GRAPH_VERSION = os.getenv("WHATSAPP_GRAPH_VERSION", "v23.0")
+
+# Google OAuth2 + Sheets API — see services/integrations/google/.
+#
+# One Google Cloud "Web application" OAuth client backs the whole deployment;
+# every organization consents separately and its tokens are stored per
+# organization in ExternalCredentialModel (encrypted at rest).
+#
+# GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET come from the Google Cloud
+# console (APIs & Services -> Credentials). GOOGLE_OAUTH_REDIRECT_URI must be
+# registered verbatim as an authorized redirect URI on that client, and the same
+# value must be replayed on the token exchange; it defaults to the backend's own
+# callback path.
+#
+# GOOGLE_PICKER_API_KEY / GOOGLE_PICKER_APP_ID are browser-safe values the UI
+# needs to open the Google Picker. The Picker is not optional: the drive.file
+# scope only grants access to files the user explicitly picks (see the scope
+# rationale in services/integrations/google/oauth.py).
+#
+# Secrets are read live from os.environ where they are used (matching the
+# WhatsApp block above) so a running deployment reflects env changes without a
+# restart; the values here document the deployment configuration surface.
+GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID") or None
+GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET") or None
+GOOGLE_OAUTH_REDIRECT_URI = (
+    os.getenv("GOOGLE_OAUTH_REDIRECT_URI")
+    or f"{BACKEND_API_ENDPOINT}/api/v1/integrations/google/oauth/callback"
+)
+GOOGLE_PICKER_API_KEY = os.getenv("GOOGLE_PICKER_API_KEY") or None
+GOOGLE_PICKER_APP_ID = os.getenv("GOOGLE_PICKER_APP_ID") or None
+
+GOOGLE_OAUTH_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_OAUTH_REVOKE_URL = "https://oauth2.googleapis.com/revoke"
+
+# Deliberately not configurable: drive.file and spreadsheets are both
+# non-sensitive scopes, so this deployment never needs Google's paid annual
+# security assessment. Widening this tuple to a restricted scope (drive,
+# drive.readonly) changes the deployment's compliance obligations.
+GOOGLE_OAUTH_SCOPES = (
+    "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/spreadsheets",
+)
+
+# How long a signed OAuth `state` stays acceptable at the callback. Long enough
+# for a real consent screen (account chooser + review), short enough that a
+# leaked authorization URL goes stale quickly.
+GOOGLE_OAUTH_STATE_MAX_AGE_SECONDS = int(
+    os.getenv("GOOGLE_OAUTH_STATE_MAX_AGE_SECONDS", "900")
+)
+# Refresh an access token that expires within this window instead of letting a
+# live call discover the expiry mid-request.
+GOOGLE_TOKEN_REFRESH_LEEWAY_SECONDS = int(
+    os.getenv("GOOGLE_TOKEN_REFRESH_LEEWAY_SECONDS", "300")
+)
+# Display name of the single per-organization Google connection row stored in
+# external_credentials (the table has a UNIQUE(organization_id, name)).
+GOOGLE_CREDENTIAL_NAME = "Google Sheets"
+
+GOOGLE_SHEETS_API_BASE_URL = "https://sheets.googleapis.com/v4/spreadsheets"
+GOOGLE_API_TIMEOUT_SECONDS = float(os.getenv("GOOGLE_API_TIMEOUT_SECONDS", "30"))
+# Sheets quota is per user, per project, per minute (429 on burst), so retries
+# are bounded and backed off rather than tight-looped.
+GOOGLE_API_MAX_ATTEMPTS = max(1, int(os.getenv("GOOGLE_API_MAX_ATTEMPTS", "4")))
+GOOGLE_API_RETRY_BASE_DELAY_SECONDS = 0.5
+GOOGLE_API_RETRY_MAX_DELAY_SECONDS = 8.0

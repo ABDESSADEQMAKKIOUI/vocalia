@@ -27,10 +27,17 @@ from api.services.telephony.call_transfer_manager import get_call_transfer_manag
 from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.transfer_event_protocol import TransferContext
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
+from api.services.integrations.google.sheets_tool import execute_sheets_tool
 from api.services.workflow.tools.custom_tool import (
+    SHEETS_TOOL_TYPE,
     execute_http_tool,
     tool_to_function_schema,
 )
+
+# A Sheets round trip is a couple of HTTP calls to Google plus, for update_row, a
+# row search. Generous enough to survive a slow quota-limited response, short
+# enough that the agent is not left silent on a dead connection.
+_SHEETS_HANDLER_TIMEOUT_SECS = 20.0
 from api.services.workflow.tools.transfer_resolver import (
     TransferResolutionError,
     resolve_transfer_config,
@@ -328,6 +335,14 @@ class CustomToolManager:
         elif tool.category == ToolCategory.TRANSFER_CALL.value:
             timeout_secs = self._transfer_handler_timeout_secs(tool)
             handler = self._create_transfer_call_handler(tool, function_name)
+        elif (tool.definition or {}).get("type") == SHEETS_TOOL_TYPE:
+            # Dispatched on definition.type, not on category: a bound sheet is
+            # stored under the generic INTEGRATION category, which several
+            # future integrations will share. Routing on category alone would
+            # send it to the HTTP handler, where config has no `url` and every
+            # call comes back as an error the agent cannot act on.
+            timeout_secs = _SHEETS_HANDLER_TIMEOUT_SECS
+            handler = self._create_sheets_tool_handler(tool, function_name)
         else:
             timeout_ms = ((tool.definition or {}).get("config", {}) or {}).get(
                 "timeout_ms", 5000
@@ -448,6 +463,36 @@ class CustomToolManager:
                 )
 
         return http_tool_handler
+
+    def _create_sheets_tool_handler(self, tool: Any, function_name: str):
+        """Create a handler for a Google Sheets tool bound to one spreadsheet.
+
+        Errors come back to the LLM as structured text rather than raising, so a
+        Sheets outage degrades into "I could not save that" mid-conversation
+        instead of dropping the call.
+        """
+
+        async def sheets_tool_handler(
+            function_call_params: FunctionCallParams,
+        ) -> None:
+            logger.info(f"Sheets Tool EXECUTED: {function_name}")
+            logger.info(f"Arguments: {function_call_params.arguments}")
+            try:
+                result = await execute_sheets_tool(
+                    tool=tool,
+                    arguments=function_call_params.arguments,
+                    call_context_vars=self._engine._call_context_vars,
+                    gathered_context_vars=self._engine._gathered_context,
+                    organization_id=await self.get_organization_id(),
+                )
+                await function_call_params.result_callback(result)
+            except Exception as e:
+                logger.error(f"Sheets tool '{function_name}' failed: {e}")
+                await function_call_params.result_callback(
+                    {"status": "error", "error": str(e)}
+                )
+
+        return sheets_tool_handler
 
     def _create_mcp_handler(self, session: "McpToolSession", function_name: str):
         """Create a handler that proxies an LLM function call to a live MCP
