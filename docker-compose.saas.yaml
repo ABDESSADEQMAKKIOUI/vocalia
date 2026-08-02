@@ -175,6 +175,16 @@ services:
       WHATSAPP_VERIFY_TOKEN: "${WHATSAPP_VERIFY_TOKEN:-}"
       WHATSAPP_GRAPH_VERSION: "${WHATSAPP_GRAPH_VERSION:-v23.0}"
 
+      # Google Sheets integration — per-organization OAuth plus the two
+      # browser-safe values the UI needs to open the Google Picker. Leave the
+      # client id/secret empty to disable the integration: every endpoint then
+      # reports it as unconfigured instead of failing mid-consent.
+      GOOGLE_OAUTH_CLIENT_ID: "${GOOGLE_OAUTH_CLIENT_ID:-}"
+      GOOGLE_OAUTH_CLIENT_SECRET: "${GOOGLE_OAUTH_CLIENT_SECRET:-}"
+      GOOGLE_OAUTH_REDIRECT_URI: "${GOOGLE_OAUTH_REDIRECT_URI:-}"
+      GOOGLE_PICKER_API_KEY: "${GOOGLE_PICKER_API_KEY:-}"
+      GOOGLE_PICKER_APP_ID: "${GOOGLE_PICKER_APP_ID:-}"
+
       # Telemetry
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-false}"
       POSTHOG_API_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
