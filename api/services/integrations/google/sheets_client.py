@@ -22,6 +22,11 @@ per user, per project, per minute, so bursts get 429s: retryable statuses (429,
 5xx) and network errors are retried with exponential backoff and jitter,
 honouring ``Retry-After`` when Google sends it.
 
+That transport lives in :mod:`.client` and is shared with every other Google API
+client; what stays here is what is specific to Sheets — the base URL, the A1
+helpers, and the error wording (a 403/404 on Sheets almost always means the file
+was never handed to this app through the Picker, which no retry can fix).
+
 Ownership of a spreadsheet id is *not* checked here — the caller must have
 resolved it from an organization-scoped record before calling.
 
@@ -30,24 +35,21 @@ Docs: https://developers.google.com/sheets/api/reference/rest
 
 from __future__ import annotations
 
-import asyncio
-import random
 import re
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import quote
 
-import httpx
 from loguru import logger
 
-from api.constants import (
-    GOOGLE_API_MAX_ATTEMPTS,
-    GOOGLE_API_RETRY_BASE_DELAY_SECONDS,
-    GOOGLE_API_RETRY_MAX_DELAY_SECONDS,
-    GOOGLE_API_TIMEOUT_SECONDS,
-    GOOGLE_SHEETS_API_BASE_URL,
-)
+from api.constants import GOOGLE_SHEETS_API_BASE_URL
 
-from .oauth import get_valid_access_token
+from .client import (
+    RETRYABLE_STATUSES,
+    GoogleApiClient,
+    GoogleApiError,
+    GoogleScopeError,
+)
+from .scopes import SCOPE_SPREADSHEETS
 
 # Sheets never goes past column ZZZ in practice (max 18278 columns), so three
 # letters is a safe upper bound for a user-supplied column key.
@@ -60,10 +62,8 @@ _CELL_REF_RE = re.compile(r"^([A-Z]+)(\d+)$")
 # unusable for formulas and filtering.
 _VALUE_INPUT_OPTION = "USER_ENTERED"
 
-_RETRYABLE_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
 
-
-class GoogleSheetsError(Exception):
+class GoogleSheetsError(GoogleApiError):
     """A Google Sheets API request failed.
 
     ``requires_reconsent`` is set when the failure is an authorization problem
@@ -71,21 +71,18 @@ class GoogleSheetsError(Exception):
     this app through the Picker) rather than something a retry could resolve.
     """
 
-    def __init__(
-        self,
-        message: str,
-        *,
-        code: str = "sheets_error",
-        http_status: int | None = None,
-        retryable: bool = False,
-        requires_reconsent: bool = False,
-    ):
-        super().__init__(message)
-        self.message = message
-        self.code = code
-        self.http_status = http_status
-        self.retryable = retryable
-        self.requires_reconsent = requires_reconsent
+    default_code = "sheets_error"
+
+
+class GoogleSheetsScopeError(GoogleScopeError, GoogleSheetsError):
+    """Sheets answered 403 insufficient scope.
+
+    Inherits from both hierarchies on purpose: code that handles Sheets errors
+    catches it as before, while code that cares about scope gaps in general
+    catches it as a ``GoogleScopeError`` and reads ``missing_scope``.
+    """
+
+    default_code = "insufficient_scope"
 
 
 # ---------------------------------------------------------------------------
@@ -162,45 +159,14 @@ def parse_first_row_number(range_notation: str) -> int | None:
     return int(match.group(2)) if match else None
 
 
-def _retry_delay(failures: int, retry_after: str | None = None) -> float:
-    """Exponential backoff with jitter, capped; honours ``Retry-After``."""
-    if retry_after:
-        try:
-            return min(float(retry_after), GOOGLE_API_RETRY_MAX_DELAY_SECONDS)
-        except ValueError:
-            pass  # Retry-After can also be an HTTP date; fall back to backoff.
-    delay = GOOGLE_API_RETRY_BASE_DELAY_SECONDS * (2 ** max(0, failures - 1))
-    delay = min(delay, GOOGLE_API_RETRY_MAX_DELAY_SECONDS)
-    # Jitter so several concurrent calls hitting the same per-minute quota do
-    # not all wake up together and 429 again.
-    return delay * (0.75 + random.random() * 0.5)
-
-
-class GoogleSheetsClient:
+class GoogleSheetsClient(GoogleApiClient):
     """Access to one Google account's spreadsheets, for one organization."""
 
-    def __init__(
-        self,
-        access_token: str,
-        *,
-        organization_id: int | None = None,
-        timeout_seconds: float = GOOGLE_API_TIMEOUT_SECONDS,
-        max_attempts: int = GOOGLE_API_MAX_ATTEMPTS,
-    ):
-        self._access_token = access_token
-        self._organization_id = organization_id
-        self._timeout_seconds = timeout_seconds
-        self._max_attempts = max(1, max_attempts)
-
-    @classmethod
-    async def for_organization(cls, organization_id: int) -> GoogleSheetsClient:
-        """Build a client from the organization's stored Google connection.
-
-        Raises ``GoogleOAuthError`` (with ``requires_reconsent``) when the
-        organization has no usable connection.
-        """
-        access_token = await get_valid_access_token(organization_id)
-        return cls(access_token, organization_id=organization_id)
+    base_url: ClassVar[str] = GOOGLE_SHEETS_API_BASE_URL
+    api_label: ClassVar[str] = "Google Sheets API"
+    api_scopes: ClassVar[tuple[str, ...]] = (SCOPE_SPREADSHEETS,)
+    error_class: ClassVar[type[GoogleApiError]] = GoogleSheetsError
+    scope_error_class: ClassVar[type[GoogleApiError]] = GoogleSheetsScopeError
 
     # ------------------------------------------------------------------
     # Reads
@@ -444,130 +410,44 @@ class GoogleSheetsClient:
     # Internals
     # ------------------------------------------------------------------
 
-    def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self._access_token}"}
-
-    async def _request(
+    def _translate_error(
         self,
+        *,
+        status_code: int,
+        message: str,
+        reason: str,
         method: str,
         path: str,
-        *,
-        params: dict[str, Any] | None = None,
-        json_body: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Issue one Sheets request, retrying transient failures.
-
-        Retries 429/5xx and network errors with backed-off, jittered delays. A
-        401 triggers exactly one forced token refresh + replay (the access token
-        may have expired between building the client and using it); a second 401
-        is reported as an authorization failure.
-        """
-        url = f"{GOOGLE_SHEETS_API_BASE_URL}{path}"
-        failures = 0
-        reauthenticated = False
-
-        async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
-            while True:
-                try:
-                    response = await client.request(
-                        method,
-                        url,
-                        headers=self._headers(),
-                        params=params,
-                        json=json_body,
-                    )
-                except httpx.HTTPError as exc:
-                    failures += 1
-                    if failures >= self._max_attempts:
-                        raise GoogleSheetsError(
-                            f"Network error calling the Google Sheets API: {exc}",
-                            code="network_error",
-                            retryable=True,
-                        ) from exc
-                    await asyncio.sleep(_retry_delay(failures))
-                    continue
-
-                if (
-                    response.status_code == 401
-                    and not reauthenticated
-                    and self._organization_id is not None
-                ):
-                    reauthenticated = True
-                    self._access_token = await get_valid_access_token(
-                        self._organization_id, force_refresh=True
-                    )
-                    logger.debug(
-                        f"Refreshed the Google access token for organization "
-                        f"{self._organization_id} after a 401 and retried {method} "
-                        f"{path}"
-                    )
-                    continue
-
-                if response.status_code in _RETRYABLE_STATUSES:
-                    failures += 1
-                    if failures < self._max_attempts:
-                        delay = _retry_delay(
-                            failures, response.headers.get("Retry-After")
-                        )
-                        logger.warning(
-                            f"Google Sheets API returned {response.status_code} for "
-                            f"{method} {path}; retrying in {delay:.1f}s "
-                            f"({failures}/{self._max_attempts})"
-                        )
-                        await asyncio.sleep(delay)
-                        continue
-
-                if response.status_code >= 400:
-                    raise self._error_from_response(response, method=method, path=path)
-
-                try:
-                    payload = response.json()
-                except ValueError:
-                    payload = {}
-                return payload if isinstance(payload, dict) else {}
-
-    @staticmethod
-    def _error_from_response(
-        response: httpx.Response, *, method: str, path: str
-    ) -> GoogleSheetsError:
-        """Turn a Google error body into a typed, actionable exception."""
-        status = response.status_code
-        try:
-            body = response.json()
-        except ValueError:
-            body = {}
-        error = body.get("error") if isinstance(body, dict) else None
-        if not isinstance(error, dict):
-            error = {}
-        message = str(error.get("message") or response.text or "").strip()
-        reason = str(error.get("status") or "").strip()
-
-        if status in (401, 403):
+    ) -> GoogleApiError:
+        """Sheets-specific wording for a failed request."""
+        if status_code in (401, 403):
             # 403 on Sheets is normally "the file was never shared with this
             # app" — with drive.file that means it was not picked, so a plain
-            # retry cannot help.
+            # retry cannot help. (A 403 that really is a scope gap never reaches
+            # here: the transport turns it into GoogleSheetsScopeError.)
             return GoogleSheetsError(
                 message
                 or "Google denied access to this spreadsheet. Re-pick the file "
                 "from Google Drive to grant access.",
                 code=reason or "permission_denied",
-                http_status=status,
-                requires_reconsent=status == 401,
+                http_status=status_code,
+                requires_reconsent=status_code == 401,
             )
-        if status == 404:
+        if status_code == 404:
             return GoogleSheetsError(
                 message
                 or "Spreadsheet not found, or it was never granted to this app.",
                 code=reason or "not_found",
-                http_status=status,
+                http_status=status_code,
             )
 
         logger.error(
-            f"Google Sheets API {method} {path} failed with HTTP {status}: {message}"
+            f"Google Sheets API {method} {path} failed with HTTP {status_code}: "
+            f"{message}"
         )
         return GoogleSheetsError(
-            message or f"Google Sheets API request failed with HTTP {status}.",
+            message or f"Google Sheets API request failed with HTTP {status_code}.",
             code=reason or "sheets_error",
-            http_status=status,
-            retryable=status in _RETRYABLE_STATUSES,
+            http_status=status_code,
+            retryable=status_code in RETRYABLE_STATUSES,
         )

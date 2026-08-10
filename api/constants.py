@@ -271,14 +271,45 @@ GOOGLE_OAUTH_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_OAUTH_REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 
-# Deliberately not configurable: drive.file and spreadsheets are both
-# non-sensitive scopes, so this deployment never needs Google's paid annual
-# security assessment. Widening this tuple to a restricted scope (drive,
-# drive.readonly) changes the deployment's compliance obligations.
-GOOGLE_OAUTH_SCOPES = (
+# drive.file and spreadsheets are both NON-SENSITIVE scopes: no Google app
+# verification, no paid annual security assessment (CASA). That is why they are
+# the default, and why widening the set is an explicit, per-deployment decision
+# rather than a code change:
+#
+#   - drive.readonly, gmail.readonly / gmail.modify  -> RESTRICTED: verification
+#     plus a recurring, paid third-party security assessment, gating the whole
+#     OAuth client (every organization already connected included).
+#   - calendar.*, documents, gmail.send              -> SENSITIVE: verification
+#     (~10 days) but no annual assessment.
+#
+# GOOGLE_OAUTH_SCOPES accepts a comma- or whitespace-separated list, so an
+# operator who has passed Google's review for a wider set can request it without
+# forking the code — and a deployment that has not stays non-sensitive by
+# default. The classification of each scope lives in
+# services/integrations/google/scopes.py, which also decides what a granted
+# scope actually covers.
+GOOGLE_OAUTH_DEFAULT_SCOPES = (
     "https://www.googleapis.com/auth/drive.file",
     "https://www.googleapis.com/auth/spreadsheets",
 )
+
+
+def _parse_google_oauth_scopes(raw: str | None) -> tuple[str, ...]:
+    """Parse GOOGLE_OAUTH_SCOPES, de-duplicated and order-preserving.
+
+    An empty or blank value keeps the non-sensitive default: a deployment never
+    silently ends up requesting nothing, which Google answers with an error at
+    the consent screen rather than at startup.
+    """
+    if not raw or not raw.strip():
+        return GOOGLE_OAUTH_DEFAULT_SCOPES
+    parsed = dict.fromkeys(
+        chunk for chunk in raw.replace(",", " ").split() if chunk.strip()
+    )
+    return tuple(parsed) or GOOGLE_OAUTH_DEFAULT_SCOPES
+
+
+GOOGLE_OAUTH_SCOPES = _parse_google_oauth_scopes(os.getenv("GOOGLE_OAUTH_SCOPES"))
 
 # How long a signed OAuth `state` stays acceptable at the callback. Long enough
 # for a real consent screen (account chooser + review), short enough that a
@@ -295,10 +326,37 @@ GOOGLE_TOKEN_REFRESH_LEEWAY_SECONDS = int(
 # external_credentials (the table has a UNIQUE(organization_id, name)).
 GOOGLE_CREDENTIAL_NAME = "Google Sheets"
 
+# Base URLs the API clients in services/integrations/google/ prepend to their
+# paths. Each one already carries the version segment, and the segment that
+# addresses the collection is part of the path the client passes:
+#
+#   Sheets    f"{GOOGLE_SHEETS_API_BASE_URL}/{spreadsheet_id}"
+#   Drive     f"{GOOGLE_DRIVE_API_BASE_URL}/files"
+#   Calendar  f"{GOOGLE_CALENDAR_API_BASE_URL}/users/me/calendarList"
+#   Gmail     f"{GOOGLE_GMAIL_API_BASE_URL}/users/me/labels"
+#   Docs      f"{GOOGLE_DOCS_API_BASE_URL}/documents/{document_id}"
 GOOGLE_SHEETS_API_BASE_URL = "https://sheets.googleapis.com/v4/spreadsheets"
+GOOGLE_DRIVE_API_BASE_URL = "https://www.googleapis.com/drive/v3"
+GOOGLE_CALENDAR_API_BASE_URL = "https://www.googleapis.com/calendar/v3"
+GOOGLE_GMAIL_API_BASE_URL = "https://gmail.googleapis.com/gmail/v1"
+GOOGLE_DOCS_API_BASE_URL = "https://docs.googleapis.com/v1"
+
 GOOGLE_API_TIMEOUT_SECONDS = float(os.getenv("GOOGLE_API_TIMEOUT_SECONDS", "30"))
 # Sheets quota is per user, per project, per minute (429 on burst), so retries
 # are bounded and backed off rather than tight-looped.
 GOOGLE_API_MAX_ATTEMPTS = max(1, int(os.getenv("GOOGLE_API_MAX_ATTEMPTS", "4")))
 GOOGLE_API_RETRY_BASE_DELAY_SECONDS = 0.5
 GOOGLE_API_RETRY_MAX_DELAY_SECONDS = 8.0
+
+# Discovery listings (the "what does this account have?" screen) are bounded:
+# they exist so an operator can pick a resource, not so the backend mirrors a
+# Drive. A page of 100 covers every realistic picker without paging.
+GOOGLE_DISCOVERY_PAGE_SIZE = max(
+    1, min(1000, int(os.getenv("GOOGLE_DISCOVERY_PAGE_SIZE", "100")))
+)
+GOOGLE_DISCOVERY_RECENT_FILES = max(
+    1, int(os.getenv("GOOGLE_DISCOVERY_RECENT_FILES", "10"))
+)
+GOOGLE_DISCOVERY_RECENT_MESSAGES = max(
+    1, int(os.getenv("GOOGLE_DISCOVERY_RECENT_MESSAGES", "5"))
+)
