@@ -17,6 +17,7 @@ import {
   Megaphone,
   MessageCircle,
   Phone,
+  Plug,
   Settings,
   TrendingUp,
   UserRound,
@@ -124,6 +125,11 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         title: "Tools",
         url: "/tools",
         icon: Wrench,
+      },
+      {
+        title: "Integrations",
+        url: "/integrations/google",
+        icon: Plug,
       },
       {
         title: "Files",
