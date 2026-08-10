@@ -26,8 +26,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 
+import { getAuthUserApiV1UserAuthUserGet } from "@/client/sdk.gen";
 import { BrandLogo } from "@/components/BrandLogo";
 import { SidebarTeamSwitcher } from "@/components/layout/SidebarTeamSwitcher";
 import ThemeToggle from "@/components/ThemeSwitcher";
@@ -73,6 +74,13 @@ type SidebarNavItem = {
   url: string;
   icon: LucideIcon;
   showsTelephonyWarning?: boolean;
+  /**
+   * Only listed for platform admins (superusers). The page itself stays
+   * reachable — it degrades to a read-only summary — and the write routes are
+   * guarded server-side. Hiding the entry just keeps the nav to things the
+   * user can actually act on.
+   */
+  superuserOnly?: boolean;
 };
 
 type SidebarNavSection = {
@@ -109,6 +117,7 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         title: "Models",
         url: "/model-configurations",
         icon: Brain,
+        superuserOnly: true,
       },
       {
         title: "Telephony",
@@ -174,7 +183,7 @@ export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { state, isMobile, setOpenMobile } = useSidebar();
-  const { provider, logout, user } = useAuth();
+  const { provider, logout, user, loading: authLoading, getAccessToken } = useAuth();
   const { config } = useAppConfig();
   const { openHireExpert } = useLeadForms();
   const {
@@ -194,6 +203,36 @@ export function AppSidebar() {
     versionInfo?.ui,
     { enabled: config?.deploymentMode === "oss" },
   );
+
+  // Platform-admin-only entries. Default to hidden until the role is known so a
+  // regular user never sees the item flash in and out on every page load.
+  const [isSuperuser, setIsSuperuser] = useState(false);
+  const hasCheckedRole = useRef(false);
+
+  useEffect(() => {
+    // Wait for auth: the interceptor that attaches the bearer token is only
+    // registered once auth has finished loading.
+    if (authLoading || !user || hasCheckedRole.current) return;
+    hasCheckedRole.current = true;
+
+    const checkRole = async () => {
+      try {
+        const accessToken = await getAccessToken();
+        const response = await getAuthUserApiV1UserAuthUserGet({
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        setIsSuperuser(Boolean(response.data?.is_superuser));
+      } catch {
+        setIsSuperuser(false);
+      }
+    };
+    checkRole();
+  }, [authLoading, user, getAccessToken]);
+
+  const visibleSections = NAV_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => !item.superuserOnly || isSuperuser),
+  })).filter((section) => section.items.length > 0);
 
   const isActive = (path: string) => pathname.startsWith(path);
 
@@ -418,7 +457,7 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className={cn("notranslate", isCollapsed && "px-0")} translate="no">
-        {NAV_SECTIONS.map((section, index) => (
+        {visibleSections.map((section, index) => (
           <SidebarGroup
             key={section.label ?? "overview"}
             className={index === 0 ? "mt-2" : "mt-6"}

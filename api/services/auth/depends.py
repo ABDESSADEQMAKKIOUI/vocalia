@@ -450,6 +450,25 @@ async def get_superuser(
     return user
 
 
+async def get_superuser_with_selected_organization(
+    user: Annotated[UserModel, Depends(get_superuser)],
+) -> UserModel:
+    """Superuser gate for routes that still need an organization context.
+
+    ``get_superuser`` reuses ``get_user`` and therefore does not guarantee a
+    selected organization, while ``get_user_with_selected_organization``
+    guarantees the organization but not the role. Platform-owned settings that
+    are *written* per organization (model configuration) need both, so compose
+    them here instead of duplicating the two checks in every handler.
+
+    Order matters: the role is checked first, so a non-superuser gets 403 —
+    never a 400 that would leak whether an organization is selected.
+    """
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+    return user
+
+
 async def get_user_ws(
     websocket: WebSocket,
     token: str = Query(None),

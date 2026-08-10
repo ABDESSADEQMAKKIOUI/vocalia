@@ -9,6 +9,7 @@ rules live in ``api/services/subscription/``.
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from loguru import logger
 
 from api.db import db_client
 from api.db.models import OrganizationModel, UserModel
@@ -37,7 +38,19 @@ from api.schemas.subscription import (
     UpdateLimitsRequest,
     UsageSnapshot,
 )
+from api.schemas.ai_model_configuration import (
+    OrganizationAIModelConfigurationV2,
+    compile_ai_model_configuration_v2,
+)
 from api.services.auth.depends import get_superuser
+from api.services.configuration.ai_model_configuration import (
+    check_for_masked_keys_in_ai_model_configuration_v2,
+    get_organization_ai_model_configuration_v2,
+    mask_ai_model_configuration_v2,
+    merge_ai_model_configuration_v2_secrets,
+    upsert_organization_ai_model_configuration_v2,
+)
+from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.subscription.plans import ensure_default_plans
 from api.services.subscription.service import (
     assign_plan,
@@ -504,3 +517,71 @@ async def get_organization_events(
     return SubscriptionEventListResponse(
         events=[SubscriptionEventResponse.model_validate(e) for e in events]
     )
+
+
+# ---------------------------------------------------------------------------
+# Tenant model configuration
+# ---------------------------------------------------------------------------
+#
+# Model choice belongs to the platform admin, but the organization routes act on
+# the CALLER's own organization — which is the admin's, not the tenant's. On a
+# deployment without Stack Auth there is no impersonation to borrow a tenant's
+# session with (AUTH_PROVIDER=local), so without these two routes locking the
+# organization ones simply means nobody can configure a client's models at all.
+
+
+@router.get("/organizations/{org_id}/model-configuration")
+async def get_organization_model_configuration(
+    org_id: int,
+    user: UserModel = Depends(get_superuser),
+):
+    """The tenant's model configuration, with its provider keys masked.
+
+    Masked even for a platform admin: the response reaches a browser, and a key
+    that never leaves the server cannot leak from one.
+    """
+    await _ensure_organization(org_id)
+    configuration = await get_organization_ai_model_configuration_v2(org_id)
+    return {
+        "organization_id": org_id,
+        "configuration": (
+            mask_ai_model_configuration_v2(configuration) if configuration else None
+        ),
+    }
+
+
+@router.put("/organizations/{org_id}/model-configuration")
+async def set_organization_model_configuration(
+    org_id: int,
+    request: OrganizationAIModelConfigurationV2,
+    user: UserModel = Depends(get_superuser),
+):
+    """Set the tenant's model configuration.
+
+    Same validation as the organization route it mirrors — merge the masked
+    secrets back from what is stored, refuse a payload that still carries a mask
+    (that would persist the mask as if it were the key), compile, and validate
+    against the providers before writing.
+    """
+    await _ensure_organization(org_id)
+    existing = await get_organization_ai_model_configuration_v2(org_id)
+    configuration = merge_ai_model_configuration_v2_secrets(request, existing)
+    try:
+        check_for_masked_keys_in_ai_model_configuration_v2(configuration)
+        effective = compile_ai_model_configuration_v2(configuration)
+        await UserConfigurationValidator().validate(
+            effective,
+            organization_id=org_id,
+            created_by=user.provider_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=exc.args[0])
+
+    await upsert_organization_ai_model_configuration_v2(org_id, configuration)
+    logger.info(
+        f"Platform admin {user.id} set the model configuration of organization {org_id}"
+    )
+    return {
+        "organization_id": org_id,
+        "configuration": mask_ai_model_configuration_v2(configuration),
+    }

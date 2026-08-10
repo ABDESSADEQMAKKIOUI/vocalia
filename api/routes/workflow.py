@@ -36,6 +36,9 @@ from api.services.configuration.masking import (
     merge_workflow_api_keys,
 )
 from api.services.configuration.merge import merge_workflow_configuration_secrets
+from api.services.configuration.voice_selection import (
+    restrict_override_to_voice_selection,
+)
 from api.services.configuration.resolve import (
     enrich_overrides_with_api_keys,
     resolve_effective_config,
@@ -1069,6 +1072,48 @@ async def update_workflow(
             existing_v2_override = (existing_configs or {}).get(
                 WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
             )
+
+            # Model configuration belongs to the administrator; the agent's owner
+            # only picks a voice and a language. Both arrive through this one
+            # field, so hiding the model form in the browser protects nothing —
+            # anyone able to save an agent could otherwise post another provider,
+            # another model, or their own API key and quietly replace the
+            # administrator's choice. The server therefore rebuilds the override
+            # from what is already in force and keeps only those two values.
+            if not user.is_superuser:
+                base_override = existing_v2_override
+                if not base_override:
+                    resolved = await get_resolved_ai_model_configuration(
+                        organization_id=user.selected_organization_id,
+                    )
+                    organization_config = resolved.organization_configuration
+                    base_override = (
+                        organization_config.model_dump(mode="json", exclude_none=True)
+                        if organization_config is not None
+                        else None
+                    )
+                if not base_override:
+                    # Nothing legitimate to graft onto: this agent has no override
+                    # and the organization has no configuration. Accepting the
+                    # payload would let it BECOME the configuration, which is the
+                    # exact escalation this guard exists to stop.
+                    raise HTTPException(
+                        status_code=403,
+                        detail=(
+                            "Model configuration is managed by an administrator. "
+                            "Ask them to configure the models for your "
+                            "organization before choosing a voice."
+                        ),
+                    )
+                workflow_configurations[
+                    WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
+                ] = restrict_override_to_voice_selection(
+                    workflow_configurations[
+                        WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
+                    ],
+                    base_override,
+                )
+
             try:
                 incoming_v2_override = (
                     OrganizationAIModelConfigurationV2.model_validate(
@@ -1114,6 +1159,18 @@ async def update_workflow(
             }
             workflow_configurations.pop("model_overrides", None)
         elif workflow_configurations and workflow_configurations.get("model_overrides"):
+            # The legacy v1 path carries provider, model and api_key just like the
+            # v2 one, so leaving it open would reopen the door the guard above
+            # just closed. There is nothing here for a non-admin to set: the
+            # voice picker writes through the v2 override, never this.
+            if not user.is_superuser:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "Model configuration is managed by an administrator. "
+                        "Choose a language and a voice instead."
+                    ),
+                )
             existing_workflow = await db_client.get_workflow(
                 workflow_id, organization_id=user.selected_organization_id
             )

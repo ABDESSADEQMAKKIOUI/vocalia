@@ -1,7 +1,8 @@
 "use client";
 
 import { format } from "date-fns";
-import { ArrowLeft, BookA, Brain, CalendarIcon, Clipboard, Download, ExternalLink, FileDown, Fingerprint, Loader2, Mic, Pause, PhoneOff, Play, Rocket, Settings, Trash2Icon, Upload, Variable, X } from "lucide-react";
+import { ArrowLeft, AudioLines, BookA, Brain, CalendarIcon, Clipboard, Download, ExternalLink, FileDown, Fingerprint, Loader2, Mic, Pause, PhoneOff, Play, Rocket, Settings, Trash2Icon, Upload, Variable, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -12,6 +13,7 @@ import {
     getAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPost,
     getModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2Get,
     getModelConfigurationV2DefaultsApiV1OrganizationsModelConfigurationsV2DefaultsGet,
+    getAuthUserApiV1UserAuthUserGet,
     getWorkflowApiV1WorkflowFetchWorkflowIdGet,
 } from "@/client/sdk.gen";
 import type {
@@ -37,6 +39,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { LanguageVoicePicker } from "@/components/voice/LanguageVoicePicker";
 import { SETTINGS_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { UnsavedChangesProvider, useUnsavedChanges, useUnsavedChangesContext } from "@/context/UnsavedChangesContext";
 import { useAudioPlayback } from "@/hooks/useAudioPlayback";
@@ -87,9 +90,18 @@ VOICEMAIL SYSTEM (respond "VOICEMAIL"):
 Respond with ONLY "CONVERSATION" if a person answered, or "VOICEMAIL" if it's voicemail/recording.`;
 
 // Sidebar navigation items
-const NAV_ITEMS = [
+const NAV_ITEMS: {
+    id: string;
+    label: string;
+    icon: LucideIcon;
+    /** Listed only for platform admins. Model configuration is theirs to set. */
+    superuserOnly?: boolean;
+}[] = [
     { id: "general", label: "General", icon: Settings },
-    { id: "models", label: "Model Overrides", icon: Brain },
+    // The one model-related choice an agent's owner actually makes. It sits
+    // before Model Overrides, which is an administrator's screen.
+    { id: "voice", label: "Language & Voice", icon: AudioLines },
+    { id: "models", label: "Model Overrides", icon: Brain, superuserOnly: true },
     { id: "variables", label: "Template Variables", icon: Variable },
     { id: "dictionary", label: "Dictionary", icon: BookA },
     { id: "voicemail", label: "Voicemail Detection", icon: PhoneOff },
@@ -1382,6 +1394,7 @@ export default function WorkflowSettingsPage() {
         }
     }, [authLoading, user, redirectToLogin]);
 
+
     useEffect(() => {
         const fetchWorkflow = async () => {
             if (!user) return;
@@ -1443,6 +1456,32 @@ function WorkflowSettingsInner({
 }) {
     const router = useRouter();
     const { dirtySections, confirmNavigate } = useUnsavedChangesContext();
+    const { getAccessToken } = useAuth();
+
+    // Model configuration belongs to the administrator. Defaults to false so the
+    // section stays hidden while the role is still unknown: showing it and then
+    // snatching it away reads as a glitch, and the server refuses the write
+    // regardless (api/routes/workflow.py) — this only decides what is offered.
+    const [isSuperuser, setIsSuperuser] = useState(false);
+    const hasCheckedRole = useRef(false);
+
+    useEffect(() => {
+        if (hasCheckedRole.current) return;
+        hasCheckedRole.current = true;
+
+        const checkRole = async () => {
+            try {
+                const accessToken = await getAccessToken();
+                const response = await getAuthUserApiV1UserAuthUserGet({
+                    headers: { Authorization: `Bearer ${accessToken}` },
+                });
+                setIsSuperuser(Boolean(response.data?.is_superuser));
+            } catch {
+                setIsSuperuser(false);
+            }
+        };
+        checkRole();
+    }, [getAccessToken]);
 
     const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
     const [activeSection, setActiveSection] = useState("general");
@@ -1583,6 +1622,19 @@ function WorkflowSettingsInner({
                                 onSave={saveWorkflowConfigurations}
                             />
 
+                            {/* Langue et voix — le seul réglage modèle laissé à
+                                l'utilisateur. Écrit voice/language dans la
+                                configuration que le moteur lit à l'appel. */}
+                            <LanguageVoicePicker
+                                workflowConfigurations={resolvedWorkflowConfigurationsForRender}
+                                workflowName={workflowName || workflow.name}
+                                organizationModelConfiguration={organizationModelConfiguration}
+                                modelConfigurationLoading={modelConfigurationLoading}
+                                modelConfigurationError={modelConfigurationError}
+                                onSave={saveWorkflowConfigurations}
+                            />
+
+                            {isSuperuser && (
                             <WorkflowModelOverridesSection
                                 workflowConfigurations={resolvedWorkflowConfigurationsForRender}
                                 workflowName={workflowName}
@@ -1593,6 +1645,7 @@ function WorkflowSettingsInner({
                                 modelConfigurationLoading={modelConfigurationLoading}
                                 modelConfigurationError={modelConfigurationError}
                             />
+                            )}
 
                             {/* Template Variables */}
                             <TemplateVariablesSection
@@ -1679,7 +1732,9 @@ function WorkflowSettingsInner({
                         <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                             On this page
                         </p>
-                        {NAV_ITEMS.map((item) => (
+                        {NAV_ITEMS.filter(
+                            (item) => !item.superuserOnly || isSuperuser,
+                        ).map((item) => (
                             <a
                                 key={item.id}
                                 href={`#${item.id}`}

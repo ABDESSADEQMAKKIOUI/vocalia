@@ -48,6 +48,7 @@ from api.schemas.telephony_phone_number import (
     ProviderSyncStatus,
 )
 from api.services.auth.depends import (
+    get_superuser_with_selected_organization,
     get_user,
     get_user_with_selected_organization,
 )
@@ -375,8 +376,20 @@ async def get_model_configuration_pricing(
 )
 async def save_model_configuration_v2(
     request: OrganizationAIModelConfigurationV2,
-    user: UserModel = Depends(get_user_with_selected_organization),
+    user: UserModel = Depends(get_superuser_with_selected_organization),
 ):
+    """Write the organization model configuration — platform admins only.
+
+    Model choice (and the BYOK provider keys it carries) is a platform-owned
+    decision: end users only pick a language and a voice on their agents.
+    Hiding the page in the UI is not access control — this route is the one an
+    ordinary user could still call by hand with their own token — so the role
+    check lives here, on the write path, not only in the navigation.
+
+    The matching GET stays open to every member: the agent settings screen
+    reads it to know which provider/voice options apply, and its secrets are
+    already masked by ``mask_ai_model_configuration_v2``.
+    """
     organization_id = user.selected_organization_id
     existing = await get_organization_ai_model_configuration_v2(organization_id)
     configuration = merge_ai_model_configuration_v2_secrets(request, existing)
@@ -424,8 +437,15 @@ async def preview_model_configuration_v2_migration(
 )
 async def migrate_model_configuration_v2(
     force: bool = Query(default=False),
-    user: UserModel = Depends(get_user_with_selected_organization),
+    user: UserModel = Depends(get_superuser_with_selected_organization),
 ):
+    """Promote the legacy v1 configuration to v2 — platform admins only.
+
+    This is a second write path onto MODEL_CONFIGURATION_V2 (and, with
+    ``force``, one that overwrites what the admin already set), so it carries
+    the same guard as the PUT above. Leaving it open would make the PUT guard
+    decorative.
+    """
     organization_id = user.selected_organization_id
     existing = await get_organization_ai_model_configuration_v2(organization_id)
     if existing is not None and not force:
