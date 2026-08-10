@@ -106,8 +106,9 @@ services:
     container_name: dograh-saas-api
     volumes:
       # The image only ships the shell entrypoints from scripts/, so mount the
-      # bootstrap script in to run it with `docker compose exec api`.
+      # operator scripts in to run them with `docker compose exec api`.
       - ./scripts/bootstrap_platform_admin.py:/app/scripts/bootstrap_platform_admin.py:ro
+      - ./scripts/seed_demo_agent.py:/app/scripts/seed_demo_agent.py:ro
     environment:
       # Core application config
       ENVIRONMENT: "${ENVIRONMENT:-local}"
