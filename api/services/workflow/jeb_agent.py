@@ -12,7 +12,9 @@ Why the knowledge sits on the global node
 -----------------------------------------
 `globalNode`'s prompt is prefixed to every prompted node whose
 `add_global_prompt` is true (see `dto.py::GlobalNodeData`). Putting the ~66 kB
-knowledge block there sends it once per session instead of once per node, and it
+knowledge block there keeps one copy instead of one per node. It is NOT sent
+once per call: the engine reconnects the Gemini Live session on every node
+transition and resends the whole instruction, which is why this graph is flat
 means every step of the call answers from the same text — an agent that knows
 the FAQ while greeting but not while concluding would contradict itself at the
 worst moment.

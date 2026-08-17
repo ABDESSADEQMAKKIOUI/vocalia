@@ -411,8 +411,9 @@ def _print_knowledge_stats() -> None:
     stats = knowledge_block_stats()
     print(
         f"Socle de connaissance : {stats['characters']} caractères, "
-        f"~{stats['estimated_tokens']} tokens estimés, envoyés une fois par "
-        "session."
+        f"~{stats['estimated_tokens']} tokens estimés, renvoyés à chaque "
+        "transition de nœud (le moteur reconnecte la session Gemini Live et "
+        "renvoie l'instruction entière) — soit deux fois sur un appel nominal."
     )
     parts = ", ".join(
         f"{name} ~{part['estimated_tokens']}" for name, part in stats["parts"].items()
