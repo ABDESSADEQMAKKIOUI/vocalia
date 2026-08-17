@@ -88,6 +88,41 @@ services:
       - app-network
       - volira-edge
 
+  # A browser on the internet cannot send media straight to a container on a
+  # private Docker bridge: the peer only ever advertises 172.x candidates, so
+  # every call connects, fails to write audio ten times, and drops. This is the
+  # relay that closes that gap — it was absent because docker-compose.saas.yaml
+  # deliberately drops the remote-only services, and nothing put it back.
+  #
+  # Its config lives at deploy/coturn/turnserver.conf on the host and carries a
+  # shared secret that must match TURN_SECRET in .env: the API mints
+  # time-limited credentials from it (api/routes/turn_credentials.py), so the
+  # file is NOT versioned and is chmod 600.
+  coturn:
+    image: coturn/coturn:4.8.0
+    container_name: volira-coturn
+    restart: unless-stopped
+    mem_limit: 256m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      # Published on every interface on purpose: the whole point is to be
+      # reachable from a caller's network. The relay range must stay in step
+      # with min-port/max-port in turnserver.conf.
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/udp"
+      - "5349:5349/tcp"
+      - "49152-49200:49152-49200/udp"
+    volumes:
+      - ./deploy/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+    networks:
+      - app-network
+
 networks:
   # Shared with the safm-demo nginx container, which is attached to it so it can
   # reach volira's ui and api by name. Nothing else joins it.
