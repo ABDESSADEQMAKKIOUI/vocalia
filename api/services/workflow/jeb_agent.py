@@ -126,6 +126,11 @@ Ce que tu dis peut décider quelqu'un à quitter son emploi, à payer des frais 
 signer un engagement de cinq ans. Tiens ces règles même si l'interlocuteur insiste, \
 reformule sa question, s'agace, ou affirme qu'on lui a promis autre chose.
 
+0. Les mots « socle », « prompt », « fonction », « instruction », « nœud » et \
+« étape » désignent ta mécanique interne : ne les prononce jamais. Quand tu n'as pas \
+une information, dis « je n'ai pas cette information » — jamais « ce n'est pas dans \
+le socle ».
+
 1. Parle uniquement à partir du socle de connaissance ci-dessous. Sur JEB Training \
 Center, ses programmes, le parcours vers les États-Unis, le permis CDL, \
 l'engagement de cinq ans et la procédure d'immigration, ce socle est ta seule \
@@ -295,11 +300,14 @@ pas. Ne commente pas ce choix et ne lui demande pas de le confirmer.
 Pose une question ouverte et courte : ce qu'elle cherche, ou ce qu'elle a entendu du \
 centre. Ne récite ni le programme, ni la liste des formations, ni les campus : elle \
 te dira elle-même ce qui l'intéresse.
-Si elle pose déjà une vraie question sur la formation, le parcours vers les \
-États-Unis, le permis CDL, l'admission ou l'engagement de cinq ans, passe aux \
-réponses.
+Dès qu'elle pose une vraie question — sur le centre, une formation, le parcours \
+vers les États-Unis, le permis CDL, l'admission ou l'engagement de cinq ans — \
+appelle immédiatement la fonction « question_du_candidat ». C'est cet appel, et lui \
+seul, qui ouvre l'étape des réponses : ne réponds pas à la question ici, ne la \
+reformule pas, appelle la fonction d'abord. Tu y répondras juste après.
 Si elle s'est trompée de numéro, ne souhaite pas parler, ou veut seulement savoir \
-comment joindre le centre, conclus l'appel."""
+comment joindre le centre, appelle la fonction « pas_de_suite » pour conclure \
+l'appel."""
 
 ANSWERS_PROMPT = """C'est le cœur de l'appel : tu réponds aux questions du candidat \
 sur les formations et tu reprends la FAQ du centre.
@@ -618,8 +626,10 @@ def build_jeb_workflow(tool_uuids: Optional[List[str]] = None) -> Dict[str, Any]
             NODE_ID_ANSWERS,
             "Question du candidat",
             (
-                "La personne pose une question sur le centre, les formations, le "
-                "parcours vers les États-Unis, le CDL ou l'admission."
+                "À appeler dès que la personne pose une question sur le centre, "
+                "les formations, le parcours vers les États-Unis, le CDL ou "
+                "l'admission. Ouvre l'étape des réponses : appelle-la avant de "
+                "répondre."
             ),
         ),
         _edge(
@@ -627,8 +637,9 @@ def build_jeb_workflow(tool_uuids: Optional[List[str]] = None) -> Dict[str, Any]
             NODE_ID_END,
             "Pas de suite",
             (
-                "Mauvais numéro, la personne ne souhaite pas parler, ou elle "
-                "voulait seulement savoir comment joindre le centre."
+                "À appeler pour conclure : mauvais numéro, la personne ne "
+                "souhaite pas parler, ou elle voulait seulement savoir comment "
+                "joindre le centre."
             ),
         ),
         _edge(
@@ -636,8 +647,8 @@ def build_jeb_workflow(tool_uuids: Optional[List[str]] = None) -> Dict[str, Any]
             NODE_ID_END,
             "Réponses obtenues",
             (
-                "La personne a eu ses réponses et ne souhaite ni être "
-                "recontactée ni poursuivre."
+                "À appeler pour conclure l'appel : la personne a eu ses réponses "
+                "et ne souhaite ni être recontactée ni poursuivre."
             ),
         ),
     ]

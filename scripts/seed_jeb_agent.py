@@ -96,7 +96,13 @@ from api.services.configuration.options.google import (  # noqa: E402
     GOOGLE_REALTIME_MODELS,
     GOOGLE_REALTIME_VOICES,
 )
-from api.services.configuration.voice_catalog import get_language  # noqa: E402
+try:  # noqa: E402
+    from api.services.configuration.voice_catalog import get_language
+except ModuleNotFoundError:
+    # Installs that predate the voice catalog still seed fine: the catalog only
+    # refines the language code, and the fallback below is the provider list.
+    def get_language(code):  # type: ignore[misc]
+        return None
 from api.services.workflow.dto import ReactFlowDTO  # noqa: E402
 from api.services.workflow.jeb_agent import (  # noqa: E402
     JEB_WORKFLOW_NAME,
@@ -244,7 +250,14 @@ async def _find_existing(organization_id: int, name: str) -> WorkflowModel | Non
     matches = [
         workflow for workflow in workflows if (workflow.name or "").strip() == name
     ]
-    return matches[0] if matches else None
+    if not matches:
+        return None
+    # The listing loads the draft only; re-fetch with the released definition
+    # eagerly loaded, since that is the version whose override decides things
+    # and the session is closed by the time it is read.
+    return await db_client.get_workflow(
+        matches[0].id, organization_id=organization_id
+    )
 
 
 def _validate_definition(definition: dict) -> list[str]:
