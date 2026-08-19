@@ -38,6 +38,22 @@ def test_graph_validates_with_and_without_tool():
     assert collect_tool_uuids(with_tool) == ["11111111-2222-3333-4444-555555555555"]
 
 
+def test_transfer_tool_wires_into_next_step_node():
+    """The transfer_call tool binds to the next-step node, and only then does that
+    node's prompt describe a live hand-off (and name the transfer function)."""
+    uuid = "11111111-2222-3333-4444-555555555555"
+    with_tool = {n["id"]: n for n in build_jeb_workflow([uuid])["nodes"]}
+    node = with_tool[NODE_ID_NEXT_STEP]
+    assert JEB_TOOL_NODE_ID == NODE_ID_NEXT_STEP
+    assert node["data"].get("tool_uuids") == [uuid]
+    assert "transfert_admissions" in node["data"]["prompt"]  # names the function
+    assert "quarante-huit heures" in node["data"]["prompt"]  # call-back fallback
+
+    without = {n["id"]: n for n in build_jeb_workflow()["nodes"]}
+    assert "tool_uuids" not in without[NODE_ID_NEXT_STEP]["data"]
+    assert "transfert_admissions" not in without[NODE_ID_NEXT_STEP]["data"]["prompt"]
+
+
 def test_call_steps_and_transitions():
     definition = build_jeb_workflow()
     nodes = {n["id"]: n for n in definition["nodes"]}

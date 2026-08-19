@@ -532,26 +532,36 @@ reviens pas en arrière.
 Quand tu as ses coordonnées, ou qu'elle a décliné, et qu'elle n'a plus de question, \
 appelle la fonction « {_fn(EDGE_CONCLUDE)} » pour conclure l'appel."""
 
-# A tool only exists once an operator has bound one (a spreadsheet, a CRM). The
-# prompt has to match reality both ways: telling the agent to "record the lead"
-# when it holds no tool invites it to claim it did.
+# The tool bound to this node is the live-transfer tool (transfer_call): when the
+# caller confirms they want to enrol, the agent connects them to the admissions
+# desk phone. The prompt has to match reality: with the tool it may offer a live
+# hand-off; without it, it can only take a number for a call-back. The transfer
+# function's name is the sanitised tool name — "Transfert admissions" becomes
+# `transfert_admissions` (custom_tool.py::tool_to_function_schema) — so the tool
+# must keep that name for this instruction to point at the right function.
 _NEXT_STEP_PROMPT_WITH_TOOL = """
 
-Tu disposes d'un outil relié au système de l'équipe. Une fois le nom et le numéro \
-confirmés, et seulement à ce moment-là, enregistre-les avec cet outil, avec le \
-profil de la personne et ce qu'elle cherche si l'outil le prévoit.
-Les paramètres de l'outil portent leurs propres noms : lis-les au moment de \
-l'appeler et choisis toi-même celui du nom, celui du téléphone et les autres. \
-N'invente jamais un nom de paramètre et n'en remplis aucun dont tu n'as pas la \
-valeur.
-Si l'outil renvoie une erreur, ne la répète pas mot pour mot : dis simplement que \
-tu n'as pas pu enregistrer et donne les coordonnées du centre."""
+MISE EN RELATION IMMÉDIATE — tu peux transférer l'appel au bureau des admissions.
+Quand la personne confirme clairement qu'elle veut s'inscrire maintenant, ou qu'elle \
+demande à parler à quelqu'un tout de suite, propose de la mettre en relation \
+directement avec le bureau des admissions. Annonce-le en une phrase — « Je vous mets \
+en relation, ne quittez pas » — et, seulement après son accord, appelle la fonction \
+« transfert_admissions ».
+Ne transfère pas quelqu'un qui pose seulement des questions, qui compare, ou qui \
+hésite encore : le transfert est réservé à une vraie intention de s'inscrire.
+Pendant que ça sonne, la personne patiente quelques secondes ; tu n'as rien à dire de \
+plus, le transfert s'occupe du reste.
+Si le transfert n'aboutit pas, parce que personne ne décroche au bureau, reprends la \
+main normalement : dis en une phrase que tu n'as pas pu joindre l'équipe tout de \
+suite, puis propose de noter son nom et son numéro pour un rappel sous quarante-huit \
+heures ouvrables."""
 
 _NEXT_STEP_PROMPT_WITHOUT_TOOL = """
 
-Aucun outil d'enregistrement n'est relié à cet agent. Ne dis donc jamais que tu as \
-enregistré, transmis ou envoyé quoi que ce soit : dis que tu notes ses coordonnées \
-pour l'équipe des admissions, ce qui est exactement ce que tu fais."""
+Aucun transfert n'est possible depuis cet agent : tu ne peux pas mettre la personne \
+en relation en direct. Ne dis donc jamais que tu la transfères ou que tu passes \
+quelqu'un ; dis que tu notes ses coordonnées pour que l'équipe des admissions la \
+rappelle, ce qui est exactement ce que tu fais."""
 
 NEXT_STEP_EXTRACTION_PROMPT = """Relis l'échange et note uniquement ce que la personne \
 a dit elle-même. Ne complète pas un nom ni un numéro partiel, ne corrige pas un \
@@ -601,7 +611,7 @@ CONTACT_EXTRACTION_VARIABLES = NEXT_STEP_EXTRACTION_VARIABLES
 
 
 def contact_tool_prompt(has_tool: bool) -> str:
-    """The next-step prompt's tool suffix, with or without the recording tool."""
+    """The next-step prompt's tool suffix, with or without the transfer tool."""
     return _NEXT_STEP_PROMPT_WITH_TOOL if has_tool else _NEXT_STEP_PROMPT_WITHOUT_TOOL
 
 
