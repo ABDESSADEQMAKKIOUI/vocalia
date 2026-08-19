@@ -39,11 +39,12 @@ Run from the repo root with the api environment available:
     python -m scripts.seed_jeb_agent
 
 On the Volira production host (51.222.30.228), the api container is `volira-api`
-and its image ships only the shell entrypoints from `scripts/`, so copy the three
+and its image ships only the shell entrypoints from `scripts/`, so copy the four
 files in rather than recreating the container — recreating it drops calls in
 progress:
 
-    docker cp api/services/workflow/jeb_knowledge.py volira-api:/app/api/services/workflow/
+    docker cp api/services/workflow/jeb_knowledge.py      volira-api:/app/api/services/workflow/
+    docker cp api/services/workflow/jeb_knowledge_data.py volira-api:/app/api/services/workflow/
     docker cp api/services/workflow/jeb_agent.py     volira-api:/app/api/services/workflow/
     docker cp scripts/seed_jeb_agent.py              volira-api:/app/scripts/
     docker exec -e GEMINI_API_KEY="$GEMINI_API_KEY" volira-api python -m scripts.seed_jeb_agent
@@ -423,20 +424,17 @@ def _print_knowledge_stats() -> None:
     """
     stats = knowledge_block_stats()
     print(
-        f"Socle de connaissance : {stats['characters']} caractères, "
-        f"~{stats['estimated_tokens']} tokens estimés, renvoyés à chaque "
+        f"Socle de connaissance : {stats['chars']:,} caractères, "
+        f"~{stats['tokens_estimate']:,} tokens estimés, renvoyés à chaque "
         "transition de nœud (le moteur reconnecte la session Gemini Live et "
-        "renvoie l'instruction entière) — soit deux fois sur un appel nominal."
+        "renvoie l'instruction entière, avec l'historique de la conversation)."
     )
-    parts = ", ".join(
-        f"{name} ~{part['estimated_tokens']}" for name, part in stats["parts"].items()
-    )
-    print(f"  Détail par partie : {parts}")
-    counts = stats["qa_by_language"]
+    parts = ", ".join(f"{name} ~{tokens:,}" for name, tokens in stats["parts"].items())
+    print(f"  Détail par partie (tokens) : {parts}")
     print(
-        f"  FAQ : {counts['fr']} questions en français, {counts['en']} en anglais, "
-        f"{counts['ar']} en arabe ; "
-        f"{len(stats['verbatim_questions'])} réponses à restituer textuellement."
+        f"  FAQ officielle : {stats['faq_questions']} questions, langues rendues : "
+        f"{', '.join(stats['faq_languages'])} ; {stats['sections']} sections de "
+        "connaissance issues des pages du site."
     )
 
 
