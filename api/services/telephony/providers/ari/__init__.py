@@ -21,6 +21,11 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
         "app_name": value.get("app_name"),
         "app_password": value.get("app_password"),
         "from_numbers": value.get("from_numbers", []),
+        # The loader is an allow-list: anything not named here is dropped on
+        # the way from the database to the provider. outbound_endpoint was
+        # saved fine and still never reached initiate_call — calls went out
+        # as PJSIP/<number> and died on "endpoint not found".
+        "outbound_endpoint": value.get("outbound_endpoint", ""),
     }
 
 
@@ -51,6 +56,16 @@ _UI_METADATA = ProviderUIMetadata(
             label="websocket_client.conf Name",
             type="text",
             description="websocket_client.conf connection name for externalMedia",
+        ),
+        ProviderUIField(
+            name="outbound_endpoint",
+            label="Outbound Endpoint",
+            type="text",
+            description=(
+                "PJSIP endpoint outbound calls leave through, e.g. a SIP trunk "
+                "or GSM gateway (dialed as PJSIP/<number>@<endpoint>). Leave "
+                "empty only if each dialed number is itself an endpoint."
+            ),
         ),
         ProviderUIField(
             name="from_numbers",

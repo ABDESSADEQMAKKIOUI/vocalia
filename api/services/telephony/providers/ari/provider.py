@@ -51,6 +51,11 @@ class ARIProvider(TelephonyProvider):
         self.app_name = config.get("app_name", "")
         self.app_password = config.get("app_password", "")
         self.from_numbers = config.get("from_numbers", [])
+        # The PJSIP endpoint outbound calls leave through. Without it a dial
+        # string is "PJSIP/<number>", which PJSIP resolves by looking for an
+        # endpoint NAMED after the number — never the case behind a trunk or a
+        # GSM gateway, where the call then dies with "no such endpoint".
+        self.outbound_endpoint = (config.get("outbound_endpoint") or "").strip()
 
         if isinstance(self.from_numbers, str):
             self.from_numbers = [self.from_numbers]
@@ -85,6 +90,10 @@ class ARIProvider(TelephonyProvider):
         # to_number can be a SIP URI or extension
         if to_number.startswith("SIP/") or to_number.startswith("PJSIP/"):
             sip_endpoint = to_number
+        elif self.outbound_endpoint:
+            # PJSIP/<number>@<endpoint>: the number is the request URI user,
+            # the endpoint decides where the INVITE goes.
+            sip_endpoint = f"PJSIP/{to_number}@{self.outbound_endpoint}"
         else:
             # Default to PJSIP technology
             sip_endpoint = f"PJSIP/{to_number}"
@@ -409,6 +418,12 @@ class ARIProvider(TelephonyProvider):
         # Build SIP endpoint
         if destination.startswith("SIP/") or destination.startswith("PJSIP/"):
             sip_endpoint = destination
+        elif self.outbound_endpoint:
+            # Same reasoning as initiate_call: a bare number has to leave
+            # through the configured trunk, or PJSIP looks for an endpoint
+            # named after it. A transfer to an external number would otherwise
+            # fail while a transfer to a local extension works — confusing.
+            sip_endpoint = f"PJSIP/{destination}@{self.outbound_endpoint}"
         else:
             sip_endpoint = f"PJSIP/{destination}"
 

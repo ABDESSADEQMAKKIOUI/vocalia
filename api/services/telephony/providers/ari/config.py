@@ -24,6 +24,16 @@ class ARIConfigurationRequest(BaseModel):
         default_factory=list,
         description="List of SIP extensions/numbers for outbound calls (optional)",
     )
+    outbound_endpoint: str = Field(
+        default="",
+        description=(
+            "PJSIP endpoint outbound calls leave through (e.g. a SIP trunk or "
+            "a GSM gateway registered as 'gsm-trunk'). Dialed as "
+            "PJSIP/<number>@<endpoint>. Empty keeps the legacy PJSIP/<number> "
+            "form, which only resolves when an endpoint is named after the "
+            "number itself."
+        ),
+    )
 
 
 class ARIConfigurationResponse(BaseModel):
@@ -35,3 +45,4 @@ class ARIConfigurationResponse(BaseModel):
     app_password: str  # Masked
     ws_client_name: str = ""
     from_numbers: List[str]
+    outbound_endpoint: str = ""
