@@ -9,6 +9,7 @@ import pytest
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.jeb_agent import (
     JEB_TOOL_NODE_ID,
+    JEB_TOOL_NODE_IDS,
     NODE_ID_ANSWERS,
     NODE_ID_END,
     NODE_ID_NEXT_STEP,
@@ -34,24 +35,27 @@ def test_graph_validates_with_and_without_tool():
     with_tool = build_jeb_workflow(["11111111-2222-3333-4444-555555555555"])
     ReactFlowDTO.model_validate(with_tool)
     carriers = [n["id"] for n in with_tool["nodes"] if n["data"].get("tool_uuids")]
-    assert carriers == [JEB_TOOL_NODE_ID]
+    assert carriers == JEB_TOOL_NODE_IDS
     assert collect_tool_uuids(with_tool) == ["11111111-2222-3333-4444-555555555555"]
 
 
-def test_transfer_tool_wires_into_next_step_node():
-    """The transfer_call tool binds to the next-step node, and only then does that
-    node's prompt describe a live hand-off (and name the transfer function)."""
+def test_transfer_tool_wires_into_every_speaking_node():
+    """The transfer_call tool binds to the greeting, answers AND next-step nodes,
+    so the caller can be connected the moment they ask; each of those prompts
+    names the transfer function. The no-tool build claims no transfer anywhere."""
     uuid = "11111111-2222-3333-4444-555555555555"
     with_tool = {n["id"]: n for n in build_jeb_workflow([uuid])["nodes"]}
-    node = with_tool[NODE_ID_NEXT_STEP]
-    assert JEB_TOOL_NODE_ID == NODE_ID_NEXT_STEP
-    assert node["data"].get("tool_uuids") == [uuid]
-    assert "transfert_admissions" in node["data"]["prompt"]  # names the function
-    assert "quarante-huit heures" in node["data"]["prompt"]  # call-back fallback
+    assert JEB_TOOL_NODE_IDS == [NODE_ID_START, NODE_ID_ANSWERS, NODE_ID_NEXT_STEP]
+    for node_id in JEB_TOOL_NODE_IDS:
+        data = with_tool[node_id]["data"]
+        assert data.get("tool_uuids") == [uuid], node_id
+        assert "transfert_admissions" in data["prompt"], node_id
+    # the number-taking fallback still lives on the next-step node
+    assert "quarante-huit heures" in with_tool[NODE_ID_NEXT_STEP]["data"]["prompt"]
 
-    without = {n["id"]: n for n in build_jeb_workflow()["nodes"]}
-    assert "tool_uuids" not in without[NODE_ID_NEXT_STEP]["data"]
-    assert "transfert_admissions" not in without[NODE_ID_NEXT_STEP]["data"]["prompt"]
+    without = build_jeb_workflow()["nodes"]
+    assert all("tool_uuids" not in n["data"] for n in without)
+    assert all("transfert_admissions" not in n["data"].get("prompt", "") for n in without)
 
 
 def test_call_steps_and_transitions():

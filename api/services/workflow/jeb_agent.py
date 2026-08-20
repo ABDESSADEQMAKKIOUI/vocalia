@@ -19,9 +19,14 @@ The graph is the call script. Four steps, each a node, each with one job:
      profile-aware, as long as the caller has questions.
   3. PROCHAINE ÉTAPE ET COORDONNÉES (`agentNode`) — say concretely what the
      caller does next (form, WhatsApp, admissions office, documents, quiz),
-     offer the call-back, take name and number, give the contact channels. This
-     is the node a lead-recording tool binds to.
+     offer the call-back, take name and number, give the contact channels.
   4. CONCLUSION (`endCall`) — recap, contacts, thanks, hang up.
+
+The transfer_call tool (a warm hand-off to the admissions desk phone) rides on
+all three speaking nodes (1, 2, 3), not only the last: a caller asks to be
+connected at any moment, and a tool bound to the final node alone is missing
+when they ask during the greeting or mid-answers — the agent then wrongly says
+it cannot transfer.
 
 Plus the `globalNode`: persona, languages, safety rules, written fallbacks, and
 the knowledge block, prefixed to every step.
@@ -92,8 +97,13 @@ NODE_ID_ANSWERS = "102"
 NODE_ID_NEXT_STEP = "103"
 NODE_ID_END = "104"
 
-# The node that carries `tool_uuids`: the next-step node is the only one with
-# something to write out — a bound spreadsheet or CRM tool records the lead.
+# The nodes that carry the transfer tool. A caller can ask to be connected to
+# admissions at any point — during the greeting, mid-answers, or at the
+# next-step — so the transfer_call tool lives on all three speaking nodes, not
+# only the last one. When it sat on the last node alone, a caller who asked to be
+# transferred earlier got "I can't transfer" because the graph never reached it.
+JEB_TOOL_NODE_IDS = [NODE_ID_START, NODE_ID_ANSWERS, NODE_ID_NEXT_STEP]
+# Back-compat alias (the next-step node is still the one that collects a number).
 JEB_TOOL_NODE_ID = NODE_ID_NEXT_STEP
 
 # Edge labels are plain ASCII so the generated function names are readable and
@@ -532,28 +542,26 @@ reviens pas en arrière.
 Quand tu as ses coordonnées, ou qu'elle a décliné, et qu'elle n'a plus de question, \
 appelle la fonction « {_fn(EDGE_CONCLUDE)} » pour conclure l'appel."""
 
-# The tool bound to this node is the live-transfer tool (transfer_call): when the
-# caller confirms they want to enrol, the agent connects them to the admissions
-# desk phone. The prompt has to match reality: with the tool it may offer a live
-# hand-off; without it, it can only take a number for a call-back. The transfer
-# function's name is the sanitised tool name — "Transfert admissions" becomes
-# `transfert_admissions` (custom_tool.py::tool_to_function_schema) — so the tool
-# must keep that name for this instruction to point at the right function.
-_NEXT_STEP_PROMPT_WITH_TOOL = """
+# The transfer_call tool is bound to the greeting, answers AND next-step nodes,
+# so the agent can connect the caller to the admissions desk phone the moment
+# they ask — not only at the last step. The function's name is the sanitised
+# tool name — "Transfert admissions" -> `transfert_admissions`
+# (custom_tool.py::tool_to_function_schema) — so the tool must keep that name for
+# this instruction to point at the right function.
+_TRANSFER_PROMPT = """
 
-MISE EN RELATION IMMÉDIATE — tu peux transférer l'appel au bureau des admissions.
-Quand la personne confirme clairement qu'elle veut s'inscrire maintenant, ou qu'elle \
-demande à parler à quelqu'un tout de suite, propose de la mettre en relation \
-directement avec le bureau des admissions. Annonce-le en une phrase — « Je vous mets \
-en relation, ne quittez pas » — et, seulement après son accord, appelle la fonction \
-« transfert_admissions ».
-Ne transfère pas quelqu'un qui pose seulement des questions, qui compare, ou qui \
-hésite encore : le transfert est réservé à une vraie intention de s'inscrire.
-Pendant que ça sonne, la personne patiente quelques secondes ; tu n'as rien à dire de \
-plus, le transfert s'occupe du reste.
-Si le transfert n'aboutit pas, parce que personne ne décroche au bureau, reprends la \
-main normalement : dis en une phrase que tu n'as pas pu joindre l'équipe tout de \
-suite, puis propose de noter son nom et son numéro pour un rappel sous quarante-huit \
+METTRE EN RELATION AVEC LES ADMISSIONS — tu peux transférer l'appel, à tout moment.
+Dès que la personne confirme qu'elle veut s'inscrire maintenant, demande à parler à \
+quelqu'un, ou demande à être mise en relation ou transférée : ne réponds jamais que \
+tu ne peux pas. Annonce-le en une phrase — « Je vous mets en relation avec le bureau \
+des admissions, ne quittez pas » — puis appelle tout de suite la fonction \
+« transfert_admissions ». Tu n'as pas besoin de changer d'étape d'abord : le \
+transfert part de l'endroit où tu es dans l'appel.
+Ne transfère pas quelqu'un qui pose seulement une question, qui compare, ou qui \
+hésite encore : le transfert est pour une vraie intention de s'inscrire ou une vraie \
+demande d'être mis en relation.
+Si le transfert n'aboutit pas, parce que personne ne décroche au bureau, dis-le en \
+une phrase et propose de noter le nom et le numéro pour un rappel sous quarante-huit \
 heures ouvrables."""
 
 _NEXT_STEP_PROMPT_WITHOUT_TOOL = """
@@ -611,8 +619,9 @@ CONTACT_EXTRACTION_VARIABLES = NEXT_STEP_EXTRACTION_VARIABLES
 
 
 def contact_tool_prompt(has_tool: bool) -> str:
-    """The next-step prompt's tool suffix, with or without the transfer tool."""
-    return _NEXT_STEP_PROMPT_WITH_TOOL if has_tool else _NEXT_STEP_PROMPT_WITHOUT_TOOL
+    """The next-step prompt's suffix: the shared transfer block when the tool is
+    attached, otherwise the no-transfer disclaimer."""
+    return _TRANSFER_PROMPT if has_tool else _NEXT_STEP_PROMPT_WITHOUT_TOOL
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -707,7 +716,35 @@ def build_jeb_workflow(tool_uuids: Optional[List[str]] = None) -> Dict[str, Any]
         constraints enforced by `WorkflowGraph`.
     """
     attached = [str(uuid) for uuid in (tool_uuids or []) if str(uuid).strip()]
+    # The transfer tool rides on every speaking node, so the caller can be
+    # connected the instant they ask; its instruction is appended to each of
+    # those nodes' prompts.
+    transfer_suffix = _TRANSFER_PROMPT if attached else ""
 
+    start_data: Dict[str, Any] = {
+        "name": "1. Accueil et profil",
+        "is_start": True,
+        "prompt": START_PROMPT + transfer_suffix,
+        "greeting_type": "text",
+        "greeting": START_GREETING,
+        "allow_interrupt": True,
+        "add_global_prompt": True,
+        "extraction_enabled": True,
+        "extraction_prompt": START_EXTRACTION_PROMPT,
+        "extraction_variables": deepcopy(START_EXTRACTION_VARIABLES),
+        # No delayed_start: this agent answers inbound calls. The caller
+        # dialled and is already listening; a pause after pickup reads as
+        # a dead line.
+    }
+    answers_data: Dict[str, Any] = {
+        "name": "2. Réponses",
+        "prompt": ANSWERS_PROMPT + transfer_suffix,
+        "allow_interrupt": True,
+        "add_global_prompt": True,
+        "extraction_enabled": True,
+        "extraction_prompt": ANSWERS_EXTRACTION_PROMPT,
+        "extraction_variables": deepcopy(ANSWERS_EXTRACTION_VARIABLES),
+    }
     next_step_data: Dict[str, Any] = {
         "name": "3. Prochaine étape et coordonnées",
         "prompt": _NEXT_STEP_PROMPT_BASE + contact_tool_prompt(bool(attached)),
@@ -718,6 +755,8 @@ def build_jeb_workflow(tool_uuids: Optional[List[str]] = None) -> Dict[str, Any]
         "extraction_variables": deepcopy(NEXT_STEP_EXTRACTION_VARIABLES),
     }
     if attached:
+        start_data["tool_uuids"] = attached
+        answers_data["tool_uuids"] = attached
         next_step_data["tool_uuids"] = attached
 
     nodes: List[Dict[str, Any]] = [
@@ -736,35 +775,13 @@ def build_jeb_workflow(tool_uuids: Optional[List[str]] = None) -> Dict[str, Any]
             "id": NODE_ID_START,
             "type": "startCall",
             "position": {"x": 700, "y": 40},
-            "data": {
-                "name": "1. Accueil et profil",
-                "is_start": True,
-                "prompt": START_PROMPT,
-                "greeting_type": "text",
-                "greeting": START_GREETING,
-                "allow_interrupt": True,
-                "add_global_prompt": True,
-                "extraction_enabled": True,
-                "extraction_prompt": START_EXTRACTION_PROMPT,
-                "extraction_variables": deepcopy(START_EXTRACTION_VARIABLES),
-                # No delayed_start: this agent answers inbound calls. The caller
-                # dialled and is already listening; a pause after pickup reads as
-                # a dead line.
-            },
+            "data": start_data,
         },
         {
             "id": NODE_ID_ANSWERS,
             "type": "agentNode",
             "position": {"x": 700, "y": 340},
-            "data": {
-                "name": "2. Réponses",
-                "prompt": ANSWERS_PROMPT,
-                "allow_interrupt": True,
-                "add_global_prompt": True,
-                "extraction_enabled": True,
-                "extraction_prompt": ANSWERS_EXTRACTION_PROMPT,
-                "extraction_variables": deepcopy(ANSWERS_EXTRACTION_VARIABLES),
-            },
+            "data": answers_data,
         },
         {
             "id": NODE_ID_NEXT_STEP,
