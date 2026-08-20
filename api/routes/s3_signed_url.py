@@ -1,16 +1,69 @@
+import hashlib
+import hmac
+import os
 import re
+import tempfile
+import time
 import uuid
 from typing import Annotated, Any, Dict, Optional, TypedDict
+from urllib.parse import urlencode
 
 from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from loguru import logger
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
+from api.constants import OSS_JWT_SECRET, PUBLIC_BASE_URL
 from api.db import db_client
 from api.enums import StorageBackend
 from api.services.auth.depends import get_user
 from api.services.storage import get_storage_for_backend, storage_fs
+
+
+def _media_type(suffix: str) -> str:
+    return {
+        ".wav": "audio/wav",
+        ".mp3": "audio/mpeg",
+        ".ogg": "audio/ogg",
+        ".m4a": "audio/mp4",
+        ".txt": "text/plain; charset=utf-8",
+        ".json": "application/json",
+        ".csv": "text/csv",
+    }.get(suffix.lower(), "application/octet-stream")
+
+
+def _stream_signature(key: str, exp: int, backend: str) -> str:
+    """HMAC over (key, expiry, backend) with the app's server secret.
+
+    The stream endpoint has no session (an <audio> tag can't send a bearer
+    token), so the signature IS the authorization: only /s3/signed-url, which
+    checks the caller owns the resource, mints one. Binding the key means a
+    valid link can't be repointed at another object; the expiry bounds it.
+    """
+    msg = f"{key}\n{exp}\n{backend}".encode("utf-8")
+    return hmac.new(
+        (OSS_JWT_SECRET or "").encode("utf-8"), msg, hashlib.sha256
+    ).hexdigest()
+
+
+def _build_stream_url(
+    key: str, expires_in: int, inline: bool, backend: str
+) -> str:
+    """A short-lived, self-authenticating URL to the streaming endpoint."""
+    exp = int(time.time()) + int(expires_in)
+    query = urlencode(
+        {
+            "key": key,
+            "exp": exp,
+            "inline": "1" if inline else "0",
+            "backend": backend,
+            "sig": _stream_signature(key, exp, backend),
+        }
+    )
+    base = (PUBLIC_BASE_URL or "").rstrip("/")
+    return f"{base}/api/v1/s3/stream?{query}"
 
 
 class S3SignedUrlResponse(TypedDict):
@@ -205,32 +258,75 @@ async def get_signed_url(
     # ------------------------------------------------------------------
     # 2. Resolve storage backend
     # ------------------------------------------------------------------
+    resolved_backend = ""
+    if storage_backend:
+        resolved_backend = storage_backend
+    elif (
+        workflow_run
+        and hasattr(workflow_run, "storage_backend")
+        and workflow_run.storage_backend
+    ):
+        resolved_backend = str(workflow_run.storage_backend)
+
+    # ------------------------------------------------------------------
+    # 3. Return a short-lived, self-authenticating URL to the stream
+    #    endpoint. The object is served THROUGH the API (from the internal
+    #    storage endpoint), so MinIO stays private and the anonymous-read
+    #    bucket is never exposed to the internet.
+    # ------------------------------------------------------------------
+    url = _build_stream_url(key, expires_in, inline, resolved_backend)
+    logger.info(f"Issued stream URL for key={key}, expires_in={expires_in}s")
+    return {"url": url, "expires_in": expires_in}
+
+
+@router.get("/stream", summary="Stream a stored file via a signed link")
+async def stream_signed_file(
+    key: Annotated[str, Query(description="S3 object key")],
+    exp: Annotated[int, Query(description="Unix expiry timestamp")],
+    sig: Annotated[str, Query(description="HMAC signature")],
+    inline: bool = False,
+    backend: str = "",
+):
+    """Serve a stored file if the signed link is valid and unexpired.
+
+    No session: the signature (minted only by the authorized ``/signed-url``
+    endpoint) is the authorization. The file is downloaded over the internal
+    storage endpoint and returned with FileResponse, which supports Range
+    requests so the browser audio player can seek.
+    """
+    if not hmac.compare_digest(_stream_signature(key, exp, backend), sig):
+        raise HTTPException(status_code=403, detail="Invalid or tampered link")
+    if exp < int(time.time()):
+        raise HTTPException(status_code=403, detail="Link expired")
+
     try:
-        if storage_backend:
-            storage = get_storage_for_backend(storage_backend)
-        elif (
-            workflow_run
-            and hasattr(workflow_run, "storage_backend")
-            and workflow_run.storage_backend
-        ):
-            storage = get_storage_for_backend(workflow_run.storage_backend)
-        else:
-            storage = storage_fs
+        storage = get_storage_for_backend(backend) if backend else storage_fs
+    except ValueError:
+        raise HTTPException(status_code=500, detail="Storage configuration error")
 
-        # ------------------------------------------------------------------
-        # 3. Generate the signed URL
-        # ------------------------------------------------------------------
-        url = await storage.aget_signed_url(
-            key, expiration=expires_in, force_inline=inline
-        )
-        if not url:
-            raise HTTPException(status_code=500, detail="Failed to generate signed URL")
+    suffix = os.path.splitext(key)[1] or ".bin"
+    fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="s3stream-")
+    os.close(fd)
+    try:
+        ok = await storage.adownload_file(key, tmp_path)
+    except Exception as exc:
+        os.unlink(tmp_path)
+        logger.error(f"Failed to read {key}: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to read file")
 
-        logger.info(f"Generated signed URL for key={key}, expires_in={expires_in}s")
-        return {"url": url, "expires_in": expires_in}
-    except ClientError as exc:
-        logger.error(f"Error generating signed URL: {exc}")
-        raise HTTPException(status_code=500, detail="Failed to generate signed URL")
+    if not ok or not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise HTTPException(status_code=404, detail="File not available")
+
+    filename = os.path.basename(key)
+    disposition = "inline" if inline else "attachment"
+    return FileResponse(
+        tmp_path,
+        media_type=_media_type(suffix),
+        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
+        background=BackgroundTask(os.unlink, tmp_path),
+    )
 
 
 @router.get(
