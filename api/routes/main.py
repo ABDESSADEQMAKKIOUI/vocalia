@@ -16,6 +16,7 @@ from api.routes.messaging_config import router as messaging_config_router
 from api.routes.messaging_inbox import router as messaging_inbox_router
 from api.routes.messaging_templates import router as messaging_templates_router
 from api.routes.messaging_whatsapp import router as messaging_whatsapp_router
+from api.routes.messaging_facebook import router as messaging_facebook_router
 from api.routes.node_types import router as node_types_router
 from api.routes.organization import router as organization_router
 from api.routes.organization_usage import router as organization_usage_router
@@ -71,6 +72,7 @@ router.include_router(auth_router)
 router.include_router(node_types_router)
 router.include_router(agent_stream_router)
 router.include_router(messaging_whatsapp_router)
+router.include_router(messaging_facebook_router)
 router.include_router(messaging_templates_router)
 router.include_router(messaging_config_router)
 router.include_router(messaging_inbox_router)

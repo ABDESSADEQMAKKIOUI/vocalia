@@ -80,6 +80,24 @@ async def receive_whatsapp_webhook(request: Request):
         return Response(status_code=403)
 
     for change in changes:
+        # Voice calls are answered inline, not enqueued: the media rides a
+        # WebRTC connection that lives in this (long-running) web process, and
+        # Meta's answer window is short. A failure here must never stop the 200
+        # Meta requires, so it is logged and swallowed.
+        if change.get("kind") == "calls":
+            try:
+                from api.services.messaging.whatsapp.calls_service import (
+                    handle_call_change,
+                )
+
+                await handle_call_change(change)
+            except Exception:
+                logger.exception(
+                    f"Failed to handle WhatsApp call webhook "
+                    f"(phone_number_id={change.get('phone_number_id')})"
+                )
+            continue
+
         try:
             await enqueue_job(FunctionNames.PROCESS_WHATSAPP_INBOUND, change)
         except Exception:

@@ -6,5 +6,6 @@ class FunctionNames:
     PROCESS_KNOWLEDGE_BASE_DOCUMENT = "process_knowledge_base_document"
     DELIVER_WEBHOOK = "deliver_webhook"
     PROCESS_WHATSAPP_INBOUND = "process_whatsapp_inbound"
+    PROCESS_FACEBOOK_INBOUND = "process_facebook_inbound"
     SWEEP_WHATSAPP_CONVERSATIONS = "sweep_whatsapp_conversations"
     PROCESS_WHATSAPP_CAMPAIGN_BATCH = "process_whatsapp_campaign_batch"

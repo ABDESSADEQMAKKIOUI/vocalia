@@ -291,13 +291,50 @@ async def _process_inbound_message(
 
     run_id = conversation.workflow_run_id
 
-    normalized_text = normalize_inbound_content(
-        msg.message_type,
-        text=msg.text,
-        interactive_reply_title=msg.interactive_reply_title,
-        interactive_reply_id=msg.interactive_reply_id,
-        is_voice_note=msg.is_voice_note,
-    ).strip()
+    # Voice notes / audio: transcribe to text with Gemini so the normal
+    # text-chat turn can answer, and remember to reply with a voice note.
+    reply_with_audio = False
+    audio_api_key: str | None = None
+    audio_voice = "Aoede"
+    if (msg.is_voice_note or msg.message_type == "audio") and msg.media_id:
+        from api.services.messaging.whatsapp.audio_service import (
+            resolve_audio_ai,
+            transcribe_audio,
+        )
+        from api.services.messaging.whatsapp.client import (
+            client_for_configuration as _client_for_configuration,
+        )
+
+        normalized_text = ""
+        try:
+            audio_api_key, audio_voice = await resolve_audio_ai(
+                run_id, address.organization_id
+            )
+            if audio_api_key:
+                _media_client = _client_for_configuration(
+                    address.configuration, phone_number_id
+                )
+                _audio_bytes, _audio_mime = await _media_client.download_media(
+                    msg.media_id
+                )
+                normalized_text = (
+                    await transcribe_audio(audio_api_key, _audio_bytes, _audio_mime)
+                ).strip()
+                reply_with_audio = bool(normalized_text)
+        except Exception:
+            logger.exception(
+                f"WhatsApp inbound audio transcription failed for run {run_id} "
+                f"(wamid={msg.wamid})"
+            )
+            normalized_text = ""
+    else:
+        normalized_text = normalize_inbound_content(
+            msg.message_type,
+            text=msg.text,
+            interactive_reply_title=msg.interactive_reply_title,
+            interactive_reply_id=msg.interactive_reply_id,
+            is_voice_note=msg.is_voice_note,
+        ).strip()
 
     if not normalized_text:
         # Unsupported content (location, sticker, reaction, ...) still counts
@@ -440,7 +477,18 @@ async def _process_inbound_message(
 
     if reply_allowed:
         try:
-            outbound_wamid = await client.send_text(to=wa_id, body=assistant_text)
+            from api.services.messaging.whatsapp.audio_service import (
+                send_assistant_reply,
+            )
+
+            outbound_wamid = await send_assistant_reply(
+                client,
+                wa_id,
+                assistant_text,
+                reply_with_audio=reply_with_audio,
+                api_key=audio_api_key,
+                voice=audio_voice,
+            )
             await db_client.touch_whatsapp_conversation(
                 conversation.id, last_outbound_at=datetime.now(UTC)
             )

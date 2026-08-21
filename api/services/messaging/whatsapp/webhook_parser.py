@@ -21,8 +21,11 @@ from typing import Any
 from loguru import logger
 
 # Webhook change `field` -> internal change kind fanned out to the inbound task.
+# "calls" is handled inline by the webhook route (a live voice call needs a
+# long-lived WebRTC connection in the web process), not enqueued to ARQ.
 _FIELD_TO_KIND = {
     "messages": "messages",
+    "calls": "calls",
     "message_template_status_update": "template_status",
     "message_template_quality_update": "template_quality",
     "template_category_update": "template_category",

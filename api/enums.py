@@ -55,6 +55,8 @@ class WorkflowRunMode(Enum):
     SMALLWEBRTC = "smallwebrtc"
     TEXTCHAT = "textchat"
     WHATSAPP = "whatsapp"
+    WHATSAPP_CALL = "whatsapp_call"
+    FACEBOOK = "facebook"
 
     # Historical, not used anymore. Don't
     # use and don't remove

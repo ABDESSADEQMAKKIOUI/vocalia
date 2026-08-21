@@ -51,6 +51,7 @@ from api.tasks.whatsapp_tasks import (
     process_whatsapp_inbound,
     sweep_whatsapp_conversations,
 )
+from api.tasks.facebook_tasks import process_facebook_inbound
 from api.tasks.workflow_completion import process_workflow_completion
 
 
@@ -65,6 +66,7 @@ class WorkerSettings:
         process_whatsapp_inbound,
         sweep_whatsapp_conversations,
         process_whatsapp_campaign_batch,
+        process_facebook_inbound,
     ]
     cron_jobs = [
         # Close WhatsApp conversations idle past the 24h service window so
